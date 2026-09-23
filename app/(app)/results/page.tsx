@@ -81,12 +81,12 @@ export default function ResultsPage() {
             currency={plan.currency}
             currentAttainment={result.totals.attainmentPct}
           />
-          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-6">
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
             {highlightRows.map((p) =>
               p ? (
-                <div key={p.attainmentPct} className="rounded-md bg-slate-50 px-2 py-1.5 text-center">
+                <div key={p.attainmentPct} className="min-w-0 rounded-md bg-slate-50 px-2 py-1.5 text-center">
                   <div className="text-[11px] text-slate-500">{p.attainmentPct}%</div>
-                  <div className="num text-xs font-semibold text-slate-900">{fmt0(p.payout)}</div>
+                  <div className="num break-words text-xs font-semibold text-slate-900">{fmt0(p.payout)}</div>
                   <div className="num text-[10px] text-slate-400">{at100 > 0 ? `${formatPct((p.payout / at100) * 100, 0)} of target` : ""}</div>
                 </div>
               ) : null,

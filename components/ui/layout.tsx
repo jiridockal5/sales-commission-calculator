@@ -7,7 +7,7 @@ import { cn, Switch } from "./controls";
 export function PageHeader({ title, description, actions }: { title: string; description?: ReactNode; actions?: ReactNode }) {
   return (
     <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-      <div>
+      <div className="min-w-0">
         <h1 className="text-lg font-semibold tracking-tight text-slate-900">{title}</h1>
         {description && <p className="mt-0.5 max-w-3xl text-sm text-slate-500">{description}</p>}
       </div>
@@ -32,14 +32,14 @@ export function Card({
   bodyClassName?: string;
 }) {
   return (
-    <section className={cn("avoid-break rounded-lg border border-slate-200 bg-white shadow-xs", className)}>
+    <section className={cn("avoid-break min-w-0 max-w-full rounded-lg border border-slate-200 bg-white shadow-xs", className)}>
       {(title || actions) && (
-        <header className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
-          <div>
+        <header className="flex min-w-0 flex-col gap-3 border-b border-slate-100 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+          <div className="min-w-0">
             {title && <h2 className="text-sm font-semibold text-slate-900">{title}</h2>}
             {description && <p className="mt-0.5 text-xs text-slate-500">{description}</p>}
           </div>
-          {actions && <div className="flex items-center gap-2">{actions}</div>}
+          {actions && <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>}
         </header>
       )}
       {children !== undefined && <div className={cn("p-4", bodyClassName)}>{children}</div>}
@@ -62,7 +62,7 @@ export function FeatureCard({
   children?: ReactNode;
 }) {
   return (
-    <section className={cn("rounded-lg border bg-white shadow-xs", enabled ? "border-brand-100" : "border-slate-200")}>
+    <section className={cn("min-w-0 max-w-full rounded-lg border bg-white shadow-xs", enabled ? "border-brand-100" : "border-slate-200")}>
       <div className="px-4 py-3">
         <Switch checked={enabled} onChange={onToggle} label={title} description={description} />
       </div>
@@ -108,10 +108,10 @@ export function KpiCard({
   emphasis?: boolean;
 }) {
   return (
-    <div className={cn("avoid-break rounded-lg border bg-white px-4 py-3 shadow-xs", emphasis ? "border-brand-100 ring-1 ring-brand-100" : "border-slate-200")}>
+    <div className={cn("avoid-break min-w-0 rounded-lg border bg-white px-4 py-3 shadow-xs", emphasis ? "border-brand-100 ring-1 ring-brand-100" : "border-slate-200")}>
       <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className={cn("num mt-1 truncate font-semibold tracking-tight", emphasis ? "text-xl text-brand-700" : "text-xl text-slate-900")}>{value}</div>
-      {sub && <div className="num mt-0.5 truncate text-xs text-slate-500">{sub}</div>}
+      <div className={cn("num mt-1 break-words font-semibold tracking-tight text-lg sm:text-xl", emphasis ? "text-brand-700" : "text-slate-900")}>{value}</div>
+      {sub && <div className="num mt-0.5 break-words text-xs text-slate-500">{sub}</div>}
     </div>
   );
 }
@@ -126,14 +126,14 @@ export function Tabs<T extends string>({
   tabs: { value: T; label: string }[];
 }) {
   return (
-    <div className="no-print flex gap-1 overflow-x-auto border-b border-slate-200">
+    <div className="no-print -mx-1 flex max-w-full gap-1 overflow-x-auto border-b border-slate-200 px-1">
       {tabs.map((t) => (
         <button
           key={t.value}
           type="button"
           onClick={() => onChange(t.value)}
           className={cn(
-            "-mb-px whitespace-nowrap border-b-2 px-3 py-2 text-sm font-medium transition-colors",
+            "-mb-px shrink-0 whitespace-nowrap border-b-2 px-3 py-2.5 text-sm font-medium transition-colors lg:py-2",
             value === t.value ? "border-brand-600 text-brand-700" : "border-transparent text-slate-500 hover:text-slate-800",
           )}
         >
@@ -151,8 +151,8 @@ export function EmptyState({ children }: { children: ReactNode }) {
 /** Table primitives with consistent finance-table styling. */
 export function DataTable({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("overflow-x-auto", className)}>
-      <table className="w-full border-collapse text-sm">{children}</table>
+    <div className={cn("data-table", className)}>
+      <table className="text-sm">{children}</table>
     </div>
   );
 }

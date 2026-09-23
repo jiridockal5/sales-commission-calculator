@@ -14,6 +14,7 @@ html,
 body {
   background: var(--color-slate-50);
   color: var(--color-slate-900);
+  overflow-x: clip;
 }
 
 body {
@@ -25,10 +26,96 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.chart-frame {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  contain: inline-size;
+}
+
 input[type="number"]::-webkit-outer-spin-button,
 input[type="number"]::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
+}
+
+/* Keep nested grids and cards inside the viewport so wide tables scroll in-card. */
+main .grid {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+main .grid > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+main section {
+  max-width: 100%;
+}
+
+/* Wide finance tables scroll inside the card; the first column stays put. */
+.data-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  contain: inline-size;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.data-table table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.data-table th:first-child,
+.data-table td:first-child {
+  position: sticky;
+  left: 0;
+}
+
+.data-table thead th:first-child {
+  z-index: 3;
+  background-color: var(--color-slate-50);
+  box-shadow: 1px 0 0 var(--color-slate-200);
+}
+
+.data-table tbody td:first-child {
+  z-index: 1;
+  background-color: #fff;
+  box-shadow: 1px 0 0 var(--color-slate-200);
+}
+
+.data-table tbody tr[class*="bg-slate-50"] td:first-child {
+  background-color: var(--color-slate-50);
+}
+
+.data-table tbody tr[class*="bg-brand-50"] td:first-child {
+  background-color: color-mix(in srgb, var(--color-brand-50) 50%, white);
+}
+
+@media screen and (max-width: 1023px) {
+  .data-table th:first-child,
+  .data-table td:first-child {
+    white-space: normal;
+    max-width: 12rem;
+  }
+
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]),
+  select,
+  textarea {
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  button:not([role="switch"]) {
+    min-height: 44px;
+  }
 }
 
 @media print {
@@ -39,6 +126,7 @@ input[type="number"]::-webkit-inner-spin-button {
   html,
   body {
     background: white;
+    overflow: visible;
   }
   .no-print {
     display: none !important;

@@ -48,7 +48,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
               <div className="text-[11px] text-slate-500">Plan simulator</div>
             </div>
           </div>
-          <button type="button" className="rounded p-1 text-slate-500 hover:bg-slate-100 lg:hidden" onClick={onClose} aria-label="Close menu">
+          <button type="button" className="inline-flex h-11 w-11 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 lg:hidden" onClick={onClose} aria-label="Close menu">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -63,7 +63,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
                   href={item.href}
                   onClick={onClose}
                   className={cn(
-                    "flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors",
+                    "flex min-h-11 items-center gap-2.5 rounded-md px-2.5 py-2.5 text-sm font-medium transition-colors lg:min-h-0 lg:py-2",
                     active ? "bg-brand-50 text-brand-700" : "text-slate-600 hover:bg-slate-50 hover:text-slate-900",
                   )}
                 >

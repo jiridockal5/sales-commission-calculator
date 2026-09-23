@@ -20,9 +20,9 @@ function Notice() {
   }, [notice, setNotice]);
   if (!notice) return null;
   return (
-    <div className="no-print fixed bottom-4 right-4 z-50 flex max-w-sm items-start gap-3 rounded-md border border-slate-200 bg-slate-900 px-4 py-3 text-sm text-white shadow-lg">
-      <span>{notice}</span>
-      <button type="button" onClick={() => setNotice(null)} className="text-slate-400 hover:text-white" aria-label="Dismiss">
+    <div className="no-print fixed bottom-4 left-4 right-4 z-50 flex items-start gap-3 rounded-md border border-slate-200 bg-slate-900 px-4 py-3 text-sm text-white shadow-lg sm:left-auto sm:max-w-sm">
+      <span className="min-w-0 flex-1">{notice}</span>
+      <button type="button" onClick={() => setNotice(null)} className="inline-flex h-11 w-11 shrink-0 items-center justify-center text-slate-400 hover:text-white sm:h-auto sm:w-auto" aria-label="Dismiss">
         <X className="h-4 w-4" />
       </button>
     </div>
@@ -48,7 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <>
             <TopBar plan={plan} onOpenSidebar={() => setSidebarOpen(true)} />
             {!PAGES_WITHOUT_SUMMARY.includes(pathname) && <SummaryStrip plan={plan} />}
-            <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-6 sm:px-6">{children}</main>
+            <main className="mx-auto w-full min-w-0 max-w-7xl flex-1 px-4 py-5 sm:px-6 sm:py-6">{children}</main>
           </>
         ) : (
           <div className="flex flex-1 items-center justify-center text-sm text-slate-400">Loading plans…</div>

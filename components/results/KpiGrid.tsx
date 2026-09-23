@@ -10,7 +10,7 @@ export function KpiGrid({ plan, result }: { plan: CommissionPlan; result: Calcul
   const t = result.totals;
   const quotaSub = t.fullQuota !== t.quota ? `Full quota ${fmt0(t.fullQuota)} (ramped)` : plan.mode === "multi" ? "All periods" : undefined;
   return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+    <div className="grid min-w-0 grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
       <KpiCard label="Quota" value={fmt0(t.quota)} sub={quotaSub} />
       <KpiCard label="Actual performance" value={fmt0(t.actual)} sub={`Commissionable ${fmt0(t.commissionableRevenue)}`} />
       <KpiCard label="Quota attainment" value={formatPct(t.attainmentPct)} sub="Quota-based revenue" />

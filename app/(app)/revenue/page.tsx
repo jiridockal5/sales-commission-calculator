@@ -46,7 +46,7 @@ export default function RevenueTypesPage() {
                 <Td className="w-20">
                   <Switch checked={rt.enabled} onChange={(enabled) => update((p) => updateRevenueType(p, rt.id, { enabled }))} />
                 </Td>
-                <Td className="min-w-56">
+                <Td className="max-w-52 whitespace-normal lg:max-w-none lg:min-w-56">
                   <TextInput
                     ariaLabel={`${rt.key} label`}
                     value={rt.label}

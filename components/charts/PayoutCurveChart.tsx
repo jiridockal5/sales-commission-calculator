@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import {
   CartesianGrid,
   Legend,
@@ -16,6 +17,19 @@ import type { CurrencyCode } from "@/lib/commission-engine/types";
 import { formatCurrency } from "@/lib/format/currency";
 
 export const SERIES_COLORS = ["#2557e8", "#0f766e", "#b45309", "#7c3aed", "#be123c", "#475569"];
+
+/** Phone and tablet widths, where axis labels need to stay inside the card. */
+export function useCompactChart() {
+  const [compact, setCompact] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setCompact(mq.matches);
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+  return compact;
+}
 
 export interface CurveSeries {
   key: string;
@@ -42,13 +56,15 @@ export function PayoutCurveChart({
   showLegend?: boolean;
   yLabel?: string;
 }) {
+  const compact = useCompactChart();
   const maxX = data.length ? data[data.length - 1].attainmentPct : 200;
-  const ticks = Array.from({ length: Math.floor(maxX / 25) + 1 }, (_, i) => i * 25);
+  const step = compact ? 50 : 25;
+  const ticks = Array.from({ length: Math.floor(maxX / step) + 1 }, (_, i) => i * step);
   const primary = series[0];
   return (
-    <div style={{ height }} className="w-full">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 10, right: 16, bottom: 4, left: 8 }}>
+    <div style={{ height }} className="chart-frame w-full min-w-0 max-w-full overflow-hidden">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+        <LineChart data={data} margin={{ top: 10, right: compact ? 4 : 16, bottom: 4, left: compact ? 0 : 8 }}>
           <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" />
           <XAxis
             dataKey="attainmentPct"
@@ -56,14 +72,14 @@ export function PayoutCurveChart({
             domain={[0, maxX]}
             ticks={ticks}
             tickFormatter={(v: number) => `${v}%`}
-            tick={{ fontSize: 11, fill: "#64748b" }}
+            tick={{ fontSize: compact ? 10 : 11, fill: "#64748b" }}
             stroke="#cbd5e1"
           />
           <YAxis
             tickFormatter={(v: number) => formatCurrency(v, currency, { compact: true })}
-            tick={{ fontSize: 11, fill: "#64748b" }}
+            tick={{ fontSize: compact ? 10 : 11, fill: "#64748b" }}
             stroke="#cbd5e1"
-            width={64}
+            width={compact ? 48 : 64}
           />
           <Tooltip
             formatter={(value, name) => [formatCurrency(Number(value), currency), name]}
@@ -79,7 +95,7 @@ export function PayoutCurveChart({
               x={currentAttainment}
               stroke="#0f172a"
               strokeWidth={1}
-              label={{ value: `Actual ${currentAttainment.toFixed(1)}%`, position: "insideTopRight", fontSize: 11, fill: "#0f172a" }}
+              label={{ value: `Actual ${currentAttainment.toFixed(0)}%`, position: "insideTopRight", fontSize: compact ? 10 : 11, fill: "#0f172a" }}
             />
           )}
           {series.map((s, i) => (

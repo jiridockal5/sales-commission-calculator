@@ -62,12 +62,12 @@ export function Field({
   );
   if (group) {
     return (
-      <div role="group" className={cn("flex flex-col items-start gap-1", className)}>
+      <div role="group" className={cn("flex w-full min-w-0 flex-col gap-1", className)}>
         {content}
       </div>
     );
   }
-  return <label className={cn("flex flex-col gap-1", className)}>{content}</label>;
+  return <label className={cn("flex w-full min-w-0 flex-col gap-1", className)}>{content}</label>;
 }
 
 const inputBase =
@@ -227,7 +227,7 @@ export function Segmented<T extends string>({
   size?: "sm" | "md";
 }) {
   return (
-    <div className="inline-flex flex-wrap self-start rounded-md border border-slate-300 bg-slate-100 p-0.5">
+    <div className="flex w-fit max-w-full flex-wrap gap-1 self-start rounded-md border border-slate-300 bg-slate-100 p-1 lg:gap-0 lg:p-0.5">
       {options.map((o) => (
         <button
           key={o.value}
@@ -235,8 +235,8 @@ export function Segmented<T extends string>({
           disabled={o.disabled}
           onClick={() => onChange(o.value)}
           className={cn(
-            "rounded px-2.5 font-medium transition-colors disabled:opacity-40",
-            size === "sm" ? "h-6 text-xs" : "h-7 text-sm",
+            "max-w-full min-w-0 rounded px-3 text-left font-medium whitespace-normal transition-colors disabled:opacity-40 lg:whitespace-nowrap lg:px-2.5 lg:text-center",
+            size === "sm" ? "text-xs lg:h-6" : "text-sm lg:h-7",
             value === o.value ? "bg-white text-slate-900 shadow-sm" : "text-slate-600 hover:text-slate-900",
           )}
         >
@@ -271,7 +271,7 @@ export function Switch({
         disabled={disabled}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors disabled:opacity-50",
+          "relative mt-0.5 inline-flex h-5 w-9 shrink-0 items-center rounded-full transition-colors before:absolute before:-inset-3 before:content-[''] disabled:opacity-50 lg:before:hidden",
           checked ? "bg-brand-600" : "bg-slate-300",
         )}
       >
@@ -302,10 +302,10 @@ export function Checkbox({
   label: ReactNode;
 }) {
   return (
-    <label className="inline-flex cursor-pointer items-center gap-2 text-sm text-slate-700">
+    <label className="inline-flex min-h-11 cursor-pointer items-center gap-2 py-1 text-sm text-slate-700 lg:min-h-0 lg:py-0">
       <input
         type="checkbox"
-        className="h-4 w-4 rounded border-slate-300 accent-brand-600"
+        className="h-5 w-5 rounded border-slate-300 accent-brand-600 lg:h-4 lg:w-4"
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
       />
@@ -344,7 +344,7 @@ export function Menu({
       {open && (
         <div
           className={cn(
-            "absolute z-40 mt-1 min-w-52 rounded-md border border-slate-200 bg-white py-1 shadow-lg",
+            "absolute z-40 mt-1 max-w-[calc(100vw-1rem)] min-w-52 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg",
             align === "right" ? "right-0" : "left-0",
           )}
         >
@@ -374,7 +374,7 @@ export function MenuItem({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm disabled:opacity-40",
+        "flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left text-sm disabled:opacity-40",
         danger ? "text-red-600 hover:bg-red-50" : "text-slate-700 hover:bg-slate-50",
       )}
     >

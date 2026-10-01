@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { withData, makePlan } from "@/lib/commission-engine/__tests__/helpers";
 import { money, dec } from "@/lib/commission-engine/money";
 import {
+  ACTUAL_TO_EMPLOYER_COST,
   BENCHMARK_RATE_PCT,
   QUOTA_TO_OTE,
+  actualToEmployerCost,
   annualQuota,
   benchmarkFigures,
   benchmarkQuotaUsd,
@@ -77,38 +79,49 @@ describe("annual quota from the plan", () => {
     expect(annualQuota(plan)).toBe(140_000);
   });
 
-  it("leaves quota, quota/OTE, and rate empty when quota is 0", () => {
+  it("leaves quota and quota/OTE empty when quota is 0 and ignores a stored target variable", () => {
     const plan = makePlan({ period: "annual", mode: "single" });
     plan.ote = { baseSalary: 80_000, targetVariable: 40_000, employerOverheadPct: 0 };
+    const before = structuredClone(plan);
     const side = userPlanBenchmark(plan);
-    expect(side.annualOte).toBe(120_000);
+    expect(plan).toEqual(before);
+    expect(side.annualTargetVariable).toBe(0);
+    expect(side.annualOte).toBe(80_000);
     expect(side.annualQuota).toBeNull();
     expect(side.quotaToOte).toBeNull();
     expect(side.rateAtQuotaPct).toBeNull();
-    expect(side.payMix).toEqual({ basePct: 66.6667, variablePct: 33.3333 });
+    expect(side.payMix).toEqual({ basePct: 100, variablePct: 0 });
   });
 
-  it("uses annual target variable divided by annual quota, not a tier rate, and does not scale OTE by period count", () => {
+  it("derives the annual target from rules at 100% of quota and does not scale base salary by period count", () => {
     let plan = makePlan({ period: "quarterly", mode: "single" });
     plan = { ...plan, ote: { baseSalary: 12_000, targetVariable: 8_000, employerOverheadPct: 0 } };
     plan = withData(plan, "new_arr", "q1", 10_000, 0);
     const before = structuredClone(plan);
     const side = userPlanBenchmark(plan);
     expect(plan).toEqual(before);
-    expect(side.annualOte).toBe(20_000);
+    expect(side.annualTargetVariable).toBe(4_000);
+    expect(side.annualOte).toBe(16_000);
     expect(side.annualQuota).toBe(40_000);
-    expect(side.quotaToOte).toBe(2);
-    expect(side.rateAtQuotaPct).toBe(20);
-    expect(side.payMix).toEqual({ basePct: 60, variablePct: 40 });
+    expect(side.quotaToOte).toBe(2.5);
+    expect(side.rateAtQuotaPct).toBe(10);
+    expect(side.payMix).toEqual({ basePct: 75, variablePct: 25 });
   });
 
-  it("leaves pay mix empty when OTE is 0", () => {
-    const plan = withData(makePlan({ period: "annual" }), "new_arr", "fy", 50_000, 0);
+  it("leaves pay mix empty when base and on-target variable are both 0", () => {
+    const plan = makePlan({ period: "annual" });
     const side = userPlanBenchmark(plan);
     expect(side.annualOte).toBe(0);
+    expect(side.annualTargetVariable).toBe(0);
     expect(side.payMix).toBeNull();
     expect(side.quotaToOte).toBeNull();
-    expect(side.rateAtQuotaPct).toBe(0);
+    expect(side.rateAtQuotaPct).toBeNull();
+  });
+
+  it("compares actual revenue with fully loaded employer cost", () => {
+    expect(ACTUAL_TO_EMPLOYER_COST).toBe(3);
+    expect(actualToEmployerCost(9_000_000, 3_900_000)).toBe(2.3077);
+    expect(actualToEmployerCost(9_000_000, 0)).toBeNull();
   });
 });
 

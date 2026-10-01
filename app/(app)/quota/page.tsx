@@ -322,9 +322,9 @@ export default function QuotaPage() {
           </div>
           {weightSum !== 100 && <Alert tone="warning">Weights total {weightSum}%. They should add up to 100%.</Alert>}
           <Alert>
-            Individual commission from the rules is multiplied by the individual weight. The team component pays team weight × target
-            variable × team payout factor, where the factor is team commission at actual ÷ team commission at quota using the same rules.
-            Set target variable on the Compensation page.
+            Individual commission from the rules is multiplied by the individual weight. The team component pays team weight × the
+            commission those rules produce at 100% of quota × team payout factor, where the factor is team commission at actual ÷ team
+            commission at quota using the same rules.
           </Alert>
           {quotaTypes.map((rt) => (
             <div key={rt.id} className="rounded-md border border-slate-200">

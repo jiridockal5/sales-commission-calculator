@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateCommission } from "../calculateCommission";
+import { calculateCommission, deriveAnnualTargets } from "../calculateCommission";
 import { calculateOTE } from "../calculateOTE";
 import { calculatePayoutCurve } from "../calculatePayoutCurve";
 import { calculatePlanComparison } from "../calculatePlanComparison";
@@ -61,11 +61,15 @@ describe("team + individual weighting", () => {
     plan = withData(plan, "new_arr", "fy", 1_000_000, 1_200_000, "team");
     const r = calculateCommission(plan);
     const p = r.periods[0];
+    const targets = deriveAnnualTargets(plan);
     expect(p.individualCommission).toBe(7_000);
-    // team: (100k + 200k*15%) / 100k = 1.3 factor; 100k * 30% * 1.3
+    // Unweighted commission at 100% of the 100k individual quota is 10k. That is the team pot.
+    // team: (100k + 200k*15%) / 100k = 1.3 factor; 10k * 30% * 1.3
+    expect(targets.annualPot).toBe(10_000);
+    expect(targets.annualTargetVariable).toBe(10_000);
     expect(p.team?.payoutFactor).toBe(1.3);
-    expect(p.teamCommission).toBe(39_000);
-    expect(r.totals.commission).toBe(46_000);
+    expect(p.teamCommission).toBe(3_900);
+    expect(r.totals.commission).toBe(10_900);
   });
 
   it("warns when weights do not total 100%", () => {

@@ -194,7 +194,10 @@ export interface SplitRule {
 export interface OTEConfig {
   /** Annual base salary. */
   baseSalary: number;
-  /** Annual target variable compensation. */
+  /**
+   * Kept so older plans still load. The engine does not read this.
+   * Annual target variable is the variable pay the rules produce at 100% of quota.
+   */
   targetVariable: number;
   /** Employer payroll taxes / benefits as percent of total cash compensation. */
   employerOverheadPct: number;

@@ -26,6 +26,7 @@ import type {
   NamedAmount,
   PerformanceData,
   PeriodResult,
+  PeriodType,
   Quota,
   QuotaScope,
   RevenueType,
@@ -41,6 +42,11 @@ export interface CalculationOptions {
   attainmentOverridePct?: number;
   /** Ignore clawbacks, guarantees and draws (used for payout curves / OTE scenarios). */
   ignoreAdjustments?: boolean;
+  /**
+   * Use the stored `ote.targetVariable` instead of deriving it.
+   * The derivation probe sets this so it does not call itself.
+   */
+  freezeTargetVariable?: boolean;
 }
 
 export interface RevenueTypeCommissionInput {
@@ -187,7 +193,11 @@ export function calculateCommission(plan: CommissionPlan, options: CalculationOp
   const revenueTypes = plan.revenueTypes.filter((t) => t.enabled).sort((a, b) => a.sortOrder - b.sortOrder);
   const periodFraction = yearFraction(plan.calculationPeriod);
   const basePerPeriod = dec(plan.ote.baseSalary).mul(periodFraction);
-  const targetVariablePerPeriod = dec(plan.ote.targetVariable).mul(periodFraction);
+  const derived = options.freezeTargetVariable ? null : deriveAnnualTargets(plan);
+  const annualTarget = dec(derived ? derived.annualTargetVariable : plan.ote.targetVariable);
+  const annualPot = dec(derived ? derived.annualPot : plan.ote.targetVariable);
+  const targetVariablePerPeriod = annualTarget.mul(periodFraction);
+  const teamPotPerPeriod = annualPot.mul(periodFraction);
   const override = options.attainmentOverridePct;
   const adjustments = !options.ignoreAdjustments;
 
@@ -255,7 +265,7 @@ export function calculateCommission(plan: CommissionPlan, options: CalculationOp
     let team: PeriodResult["team"] = null;
     if (f.team) {
       const factor = teamCommissionAtQuota.gt(0) ? teamCommissionAtActual.div(teamCommissionAtQuota) : dec(0);
-      const teamTarget = targetVariablePerPeriod.mul(teamWeight);
+      const teamTarget = teamPotPerPeriod.mul(teamWeight);
       team = {
         quota: round2(teamQuota).toNumber(),
         actual: round2(teamActual).toNumber(),
@@ -462,5 +472,54 @@ export function calculateCommission(plan: CommissionPlan, options: CalculationOp
     splits,
     employerCost,
     warnings,
+  };
+}
+
+/** A single non-year period stands in for a year. Multiple periods are already a year and are only summed. */
+const ANNUALIZATION: Record<PeriodType, number> = {
+  monthly: 12,
+  quarterly: 4,
+  half_year: 2,
+  annual: 1,
+};
+
+export interface AnnualTargets {
+  /** Unweighted individual commission at 100% of quota, annualized. This is the team pot. */
+  annualPot: number;
+  /** Variable pay at 100% of quota, annualized. Includes bonuses and the team weight split. */
+  annualTargetVariable: number;
+}
+
+function annualizeActiveTotal(plan: CommissionPlan, activeTotal: number): Dec {
+  const periods = activePeriods(plan);
+  if (periods.length === 0) return dec(0);
+  const total = dec(activeTotal);
+  if (plan.mode !== "single") return total;
+  return total.mul(ANNUALIZATION[periods[0].periodType]);
+}
+
+/**
+ * Annual on-target variable implied by the rules.
+ * Does not read `plan.ote.targetVariable`. The probe turns team off and freezes the stored
+ * target so this cannot call itself. Guarantees, draws and clawbacks are excluded.
+ * Flat-rate revenue keeps its entered actual, matching the attainment-level table.
+ */
+export function deriveAnnualTargets(plan: CommissionPlan): AnnualTargets {
+  const probe: CommissionPlan = {
+    ...plan,
+    features: { ...plan.features, team: false },
+    ote: { ...plan.ote, targetVariable: 0 },
+  };
+  const at100 = calculateCommission(probe, {
+    attainmentOverridePct: 100,
+    ignoreAdjustments: true,
+    freezeTargetVariable: true,
+  });
+  const annualPot = round2(annualizeActiveTotal(plan, at100.totals.commission));
+  const annualBonuses = annualizeActiveTotal(plan, at100.totals.bonuses);
+  const weight = plan.features.team ? dec(plan.team.individualWeight).plus(plan.team.teamWeight).div(100) : dec(1);
+  return {
+    annualPot: annualPot.toNumber(),
+    annualTargetVariable: round2(annualPot.mul(weight).plus(annualBonuses)).toNumber(),
   };
 }

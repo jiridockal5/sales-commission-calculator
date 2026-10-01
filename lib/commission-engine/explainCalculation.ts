@@ -213,13 +213,13 @@ function explainPeriod(plan: CommissionPlan, period: PeriodResult): PeriodExplan
 /**
  * Turns a plan and an engine result into the lines shown on Compensation.
  * Reads tier slices from the result; it does not recompute commission or change the plan.
- * Annual quota and the rate at 100% of quota come from the benchmark helper.
+ * Annual target variable, annual quota, and the rate at 100% of quota come from the benchmark helper.
  */
 export function explainCalculation(plan: CommissionPlan, result: CalculationResult): CalculationExplanation {
   const figures = userPlanBenchmark(plan);
   return {
     annualBase: money(plan.ote.baseSalary),
-    annualTargetVariable: money(plan.ote.targetVariable),
+    annualTargetVariable: figures.annualTargetVariable,
     annualOte: figures.annualOte,
     annualQuota: figures.annualQuota,
     rateAtQuotaPct: figures.rateAtQuotaPct,

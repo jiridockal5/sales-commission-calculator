@@ -41,11 +41,11 @@ describe("explainCalculation", () => {
     expect(result.totals.earnedVariable).toBe(60_000);
 
     expect(explained.annualBase).toBe(1_800_000);
-    expect(explained.annualTargetVariable).toBe(600_000);
-    expect(explained.annualOte).toBe(2_400_000);
+    expect(explained.annualTargetVariable).toBe(360_000);
+    expect(explained.annualOte).toBe(2_160_000);
     expect(explained.annualQuota).toBe(1_200_000);
     expect(explained.annualQuota).toBe(annualQuota(plan));
-    expect(explained.rateAtQuotaPct).toBe(50);
+    expect(explained.rateAtQuotaPct).toBe(30);
     expect(explained.rateAtQuotaPct).toBe(userPlanBenchmark(plan).rateAtQuotaPct);
 
     expect(explained.periods).toHaveLength(1);
@@ -171,7 +171,8 @@ describe("explainCalculation", () => {
     expect(explained.periods[0].baseSalary).toBe(450_000);
     expect(explained.annualQuota).toBe(1_200_000);
     expect(explained.annualQuota).toBe(annualQuota(plan));
-    expect(explained.rateAtQuotaPct).toBe(50);
+    expect(explained.annualTargetVariable).toBe(120_000);
+    expect(explained.rateAtQuotaPct).toBe(10);
     expect(explained.rateAtQuotaPct).toBe(userPlanBenchmark(plan).rateAtQuotaPct);
   });
 
@@ -189,7 +190,8 @@ describe("explainCalculation", () => {
     expect(explained.periods.map((period) => period.baseSalary)).toEqual([300_000, 300_000, 300_000, 300_000]);
     expect(explained.annualQuota).toBe(100_000);
     expect(explained.annualQuota).not.toBe(400_000);
-    expect(explained.rateAtQuotaPct).toBe(100);
+    expect(explained.annualTargetVariable).toBe(10_000);
+    expect(explained.rateAtQuotaPct).toBe(10);
     expect(explained.periods.reduce((sum, period) => sum + period.variableEarned, 0)).toBe(result.totals.earnedVariable);
   });
 

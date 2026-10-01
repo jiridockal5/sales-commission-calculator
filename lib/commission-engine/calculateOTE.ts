@@ -1,4 +1,4 @@
-import { calculateCommission } from "./calculateCommission";
+import { calculateCommission, deriveAnnualTargets } from "./calculateCommission";
 import { dec, ratioPct, round2 } from "./money";
 import type { CommissionPlan, OTEResult, OTEScenario } from "./types";
 
@@ -18,12 +18,13 @@ export function simulateAtAttainment(plan: CommissionPlan, attainmentPct: number
 
 /** OTE figures are annual; scenarios cover the modeled periods. */
 export function calculateOTE(plan: CommissionPlan, attainments = OTE_SCENARIO_ATTAINMENTS): OTEResult {
-  const ote = dec(plan.ote.baseSalary).plus(plan.ote.targetVariable);
+  const annualTarget = deriveAnnualTargets(plan).annualTargetVariable;
+  const ote = dec(plan.ote.baseSalary).plus(annualTarget);
   return {
     baseSalary: round2(plan.ote.baseSalary).toNumber(),
-    targetVariable: round2(plan.ote.targetVariable).toNumber(),
+    targetVariable: annualTarget,
     ote: round2(ote).toNumber(),
-    variablePct: ratioPct(plan.ote.targetVariable, ote),
+    variablePct: ratioPct(annualTarget, ote),
     scenarios: attainments.map((a) => simulateAtAttainment(plan, a)),
   };
 }

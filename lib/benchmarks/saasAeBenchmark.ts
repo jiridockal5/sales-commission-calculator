@@ -1,3 +1,4 @@
+import { deriveAnnualTargets } from "@/lib/commission-engine/calculateCommission";
 import { activePeriods } from "@/lib/commission-engine/periods";
 import { dec, money, ratioPct, type Numeric } from "@/lib/commission-engine/money";
 import type { CommissionPlan, CurrencyCode, PeriodType } from "@/lib/commission-engine/types";
@@ -14,6 +15,11 @@ export const BENCHMARK_SOURCE =
 
 export const QUOTA_TO_OTE = 4.4;
 export const BENCHMARK_RATE_PCT = 11;
+/**
+ * Planning benchmark for actual revenue ÷ fully loaded employer cost.
+ * Not a Bridge Group median. Payroll taxes and benefits belong in the cost.
+ */
+export const ACTUAL_TO_EMPLOYER_COST = 3;
 
 export type AspBandId = "small" | "typical" | "large";
 
@@ -62,6 +68,8 @@ export interface BenchmarkFigures {
 /** Figures taken from the user's plan. Null means the row should stay empty. */
 export interface UserPlanBenchmark {
   annualOte: number;
+  /** Variable pay the rules produce at 100% of quota, annualized. */
+  annualTargetVariable: number;
   payMix: PayMix | null;
   annualQuota: number | null;
   quotaToOte: number | null;
@@ -129,21 +137,28 @@ export function annualQuota(plan: CommissionPlan): number | null {
   return money(annual);
 }
 
-/** User-plan side of the five benchmark rows. Does not read commission tier rates and does not mutate the plan. */
+/** Actual ÷ total employer cost. Null when the cost is missing or not positive. */
+export function actualToEmployerCost(actual: Numeric, employerCost: Numeric): number | null {
+  return ratio(actual, employerCost);
+}
+
+/** User-plan side of the benchmark rows. Derives on-target variable from the rules and does not mutate the plan. */
 export function userPlanBenchmark(plan: CommissionPlan): UserPlanBenchmark {
-  const annualOte = money(dec(plan.ote.baseSalary).plus(plan.ote.targetVariable));
+  const annualTargetVariable = deriveAnnualTargets(plan).annualTargetVariable;
+  const annualOte = money(dec(plan.ote.baseSalary).plus(annualTargetVariable));
   const quota = annualQuota(plan);
   return {
     annualOte,
+    annualTargetVariable,
     payMix:
       annualOte === 0
         ? null
         : {
             basePct: ratioPct(plan.ote.baseSalary, annualOte) ?? 0,
-            variablePct: ratioPct(plan.ote.targetVariable, annualOte) ?? 0,
+            variablePct: ratioPct(annualTargetVariable, annualOte) ?? 0,
           },
     annualQuota: quota,
     quotaToOte: quota === null ? null : ratio(quota, annualOte),
-    rateAtQuotaPct: quota === null ? null : ratioPct(plan.ote.targetVariable, quota),
+    rateAtQuotaPct: quota === null ? null : ratioPct(annualTargetVariable, quota),
   };
 }

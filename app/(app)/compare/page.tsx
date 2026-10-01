@@ -6,6 +6,7 @@ import { GroupedBarChart } from "@/components/charts/GroupedBarChart";
 import { PayoutCurveChart, SERIES_COLORS } from "@/components/charts/PayoutCurveChart";
 import { Button, Checkbox } from "@/components/ui/controls";
 import { Alert, Card, DataTable, EmptyState, PageHeader, Td, Th } from "@/components/ui/layout";
+import { SaasBenchmark } from "@/components/compare/SaasBenchmark";
 import { calculatePlanComparison } from "@/lib/commission-engine/calculatePlanComparison";
 import type { PlanComparisonEntry } from "@/lib/commission-engine/types";
 import { formatCurrency, formatPct } from "@/lib/format/currency";
@@ -93,6 +94,8 @@ export default function ComparePage() {
       ) : (
         <>
           {mixedCurrencies && <Alert tone="warning">Selected plans use different currencies. Values are not converted.</Alert>}
+
+          <SaasBenchmark plans={selected} />
 
           <Card title="Key metrics" description={entries.length > 1 ? `Differences are shown relative to ${baseline.planName}.` : undefined} bodyClassName="p-0">
             <DataTable>

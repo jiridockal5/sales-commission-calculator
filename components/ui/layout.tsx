@@ -157,9 +157,20 @@ export function DataTable({ children, className }: { children: ReactNode; classN
   );
 }
 
-export function Th({ children, align = "left", className }: { children?: ReactNode; align?: "left" | "right" | "center"; className?: string }) {
+export function Th({
+  children,
+  align = "left",
+  className,
+  colSpan,
+}: {
+  children?: ReactNode;
+  align?: "left" | "right" | "center";
+  className?: string;
+  colSpan?: number;
+}) {
   return (
     <th
+      colSpan={colSpan}
       className={cn(
         "whitespace-nowrap border-b border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-500",
         align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left",

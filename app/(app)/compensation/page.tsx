@@ -23,10 +23,10 @@ export default function CompensationPage() {
       <div className="grid gap-5 lg:grid-cols-3">
         <Card title="On-target earnings (annual)" className="lg:col-span-1">
           <div className="space-y-4">
-            <Field label="Base salary">
+            <Field label="Annual base salary">
               <NumberInput prefix={symbol} min={0} value={plan.ote.baseSalary} onChange={(v) => setOte({ baseSalary: v ?? 0 })} />
             </Field>
-            <Field label="Target variable compensation" hint="Variable pay at 100% attainment.">
+            <Field label="Annual target variable" hint="Variable pay at 100% attainment.">
               <NumberInput prefix={symbol} min={0} value={plan.ote.targetVariable} onChange={(v) => setOte({ targetVariable: v ?? 0 })} />
             </Field>
             <Field label="Employer overhead" hint="Payroll taxes and benefits on cash compensation.">

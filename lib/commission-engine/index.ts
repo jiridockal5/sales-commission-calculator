@@ -16,3 +16,4 @@ export * from "./calculateCommission";
 export * from "./calculateOTE";
 export * from "./calculatePayoutCurve";
 export * from "./calculatePlanComparison";
+export * from "./explainCalculation";

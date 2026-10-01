@@ -1,5 +1,6 @@
 "use client";
 
+import { CalculationBreakdown } from "@/components/compensation/CalculationBreakdown";
 import { Field, NumberInput } from "@/components/ui/controls";
 import { Card, KpiCard, PageHeader } from "@/components/ui/layout";
 import { EmployerCostTable, OTEScenarioTable } from "@/components/results/ResultTables";
@@ -44,6 +45,7 @@ export default function CompensationPage() {
                 </div>
               </div>
             </div>
+            <CalculationBreakdown plan={plan} result={result} />
           </div>
         </Card>
 

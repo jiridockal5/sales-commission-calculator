@@ -10,6 +10,8 @@ import {
   benchmarkFigures,
   benchmarkQuotaUsd,
   convertBenchmarkAmount,
+  pointGap,
+  relativeGapPct,
   userPlanBenchmark,
   aspBand,
 } from "./saasAeBenchmark";
@@ -151,5 +153,35 @@ describe("benchmark currency conversion", () => {
     expect(convertBenchmarkAmount(10.005, "EUR", 1)).toBe(10.01);
     expect(money(dec(176_000).mul("0.1"))).toBe(17_600);
     expect(benchmarkFigures("typical", "EUR", 0.1).annualOte).toBe(17_600);
+  });
+});
+
+describe("gap versus the survey median", () => {
+  const bench = benchmarkFigures("small", "CZK", 21);
+
+  it("expresses money and quota / OTE as a relative percent", () => {
+    expect(bench.annualOte).toBe(2_520_000);
+    expect(bench.annualQuota).toBe(11_088_000);
+    expect(relativeGapPct(4_200_000, bench.annualOte)).toBe(66.6667);
+    expect(relativeGapPct(12_000_000, bench.annualQuota)).toBe(8.2251);
+    expect(relativeGapPct(2.8571, bench.quotaToOte)).toBe(-35.0659);
+    expect(relativeGapPct(bench.annualOte, bench.annualOte)).toBe(0);
+  });
+
+  it("expresses pay mix and the rate as percentage points", () => {
+    expect(pointGap(42.8571, bench.payMix.basePct)).toBe(-27.1429);
+    expect(pointGap(57.1429, bench.payMix.variablePct)).toBe(27.1429);
+    expect(pointGap(20, bench.rateAtQuotaPct)).toBe(9);
+    expect(pointGap(bench.rateAtQuotaPct, bench.rateAtQuotaPct)).toBe(0);
+  });
+
+  it("stays empty when a money benchmark is hidden or the denominator is 0", () => {
+    const hidden = benchmarkFigures("small", "CZK", null);
+    expect(relativeGapPct(4_200_000, hidden.annualOte)).toBeNull();
+    expect(relativeGapPct(12_000_000, hidden.annualQuota)).toBeNull();
+    expect(relativeGapPct(1, 0)).toBeNull();
+    expect(relativeGapPct(null, bench.annualOte)).toBeNull();
+    expect(pointGap(null, bench.rateAtQuotaPct)).toBeNull();
+    expect(pointGap(20, hidden.rateAtQuotaPct)).toBe(9);
   });
 });

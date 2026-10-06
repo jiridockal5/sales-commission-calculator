@@ -96,6 +96,23 @@ export function convertBenchmarkAmount(amountUsd: number, currency: CurrencyCode
   return money(dec(amountUsd).mul(unitsPerUsd));
 }
 
+/**
+ * (user − benchmark) / benchmark × 100.
+ * Null when either side is missing or the benchmark is 0.
+ */
+export function relativeGapPct(user: number | null, benchmark: number | null): number | null {
+  if (user === null || benchmark === null || !Number.isFinite(user) || !Number.isFinite(benchmark)) return null;
+  const denominator = dec(benchmark);
+  if (denominator.isZero()) return null;
+  return dec(user).minus(benchmark).div(denominator).mul(100).toDecimalPlaces(4).toNumber();
+}
+
+/** user − benchmark, in percentage points. Null when either side is missing. */
+export function pointGap(user: number | null, benchmark: number | null): number | null {
+  if (user === null || benchmark === null || !Number.isFinite(user) || !Number.isFinite(benchmark)) return null;
+  return dec(user).minus(benchmark).toDecimalPlaces(4).toNumber();
+}
+
 export function benchmarkFigures(bandId: AspBandId, currency: CurrencyCode, unitsPerUsd: number | null): BenchmarkFigures {
   const band = aspBand(bandId);
   const quotaUsd = benchmarkQuotaUsd(band);

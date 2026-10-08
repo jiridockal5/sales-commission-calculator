@@ -5,8 +5,14 @@ import {
   calculateTeam,
   calculateTeamScenario,
   calculateVariablePayout,
+  calculateAttainmentScenarios,
 } from "./calculations";
-import { deserializeTeam, mergeImportedTeam } from "./export";
+import {
+  deserializeTeam,
+  mergeImportedTeam,
+  TEAM_EXPORT_FORMAT,
+  TEAM_SCHEMA_VERSION,
+} from "./export";
 import type { TeamMember, TeamDefinition } from "./types";
 
 describe("calculateMemberValues", () => {
@@ -320,11 +326,13 @@ describe("team commission scenarios", () => {
     expect(calculateVariablePayout(40000, 50, { thresholdPct: 50, accelerator: 2, capPct: null })).toBe(0);
   });
 
-  it("pays full variable at 100%, accelerates above target, and applies cap", () => {
+  it("pays full variable at 100%, including when threshold is 100%", () => {
     const rules = { thresholdPct: 50, accelerator: 2, capPct: 150 };
     expect(calculateVariablePayout(40000, 100, rules)).toBe(40000);
     expect(calculateVariablePayout(40000, 125, rules)).toBe(60000);
     expect(calculateVariablePayout(40000, 200, rules)).toBe(80000);
+    expect(calculateVariablePayout(40000, 99, { thresholdPct: 100, accelerator: 2, capPct: null })).toBe(0);
+    expect(calculateVariablePayout(40000, 100, { thresholdPct: 100, accelerator: 2, capPct: null })).toBe(40000);
   });
 
   it("uses team attainment for a team-quota manager and converts total cost", () => {
@@ -418,7 +426,7 @@ describe("hierarchy quota aggregation", () => {
     expect(result.totals.teamAnnualQuota).toBe(7800);
   });
 
-  it("uses member-specific attainment and root attainment for annual ARR", () => {
+  it("uses member-specific attainment and sums own quotas for annual ARR", () => {
     const scenario = calculateTeamScenario(hierarchyTeam, "USD", {
       id: "named",
       name: "Named",
@@ -432,10 +440,87 @@ describe("hierarchy quota aggregation", () => {
 
     expect(scenario.scenarioName).toBe("Named");
     expect(scenario.attainmentPct).toBeNull();
-    expect(scenario.members.map((member) => member.variablePayout)).toEqual([50, 100, 75, 25]);
-    expect(scenario.totalCost).toBe(725);
-    expect(scenario.generatedArr).toBe(4200);
-    expect(scenario.arrCostRatio).toBe(0.48);
+    expect(scenario.members.map((member) => member.variablePayout)).toEqual([116.67, 100, 75, 25]);
+    expect(scenario.totalCost).toBe(791.67);
+    expect(scenario.generatedArr).toBe(9000);
+    expect(scenario.arrCostRatio).toBe(0.95);
+  });
+
+  it("measures team-basis payout on mixed subtree attainment, not a manager label", () => {
+    const mixed: TeamDefinition = {
+      id: "mixed",
+      name: "Mixed",
+      defaultQuotaMultiple: 1,
+      defaultThresholdPct: 0,
+      defaultAccelerator: 1,
+      defaultCapPct: null,
+      fxRates: { "USD/CZK": 20 },
+      members: [
+        {
+          id: "head",
+          name: "Head",
+          role: "Head of Sales",
+          currency: "CZK",
+          payPeriod: "monthly",
+          base: 100,
+          targetVariable: 100,
+          quotaMode: "multiple",
+          quotaMultiple: 1,
+          reportsToMemberId: null,
+          payoutBasis: "team",
+        },
+        {
+          id: "cz",
+          name: "CZ AE",
+          role: "AE",
+          currency: "CZK",
+          payPeriod: "monthly",
+          base: 50,
+          targetVariable: 50,
+          quotaMode: "multiple",
+          quotaMultiple: 1,
+          reportsToMemberId: "head",
+          payoutBasis: "individual",
+        },
+        {
+          id: "us",
+          name: "US AE",
+          role: "AE",
+          currency: "USD",
+          payPeriod: "monthly",
+          base: 10,
+          targetVariable: 10,
+          quotaMode: "multiple",
+          quotaMultiple: 1,
+          reportsToMemberId: "head",
+          payoutBasis: "individual",
+        },
+      ],
+      scenarios: [],
+      createdAt: "2026-01-01",
+      updatedAt: "2026-01-01",
+    };
+
+    const scenario = calculateTeamScenario(mixed, "CZK", {
+      id: "mixed",
+      name: "Mixed",
+      attainmentByMemberId: { head: 100, cz: 50, us: 150 },
+    });
+    const head = scenario.members.find((member) => member.memberId === "head");
+    const cz = scenario.members.find((member) => member.memberId === "cz");
+    const us = scenario.members.find((member) => member.memberId === "us");
+
+    expect(cz?.variablePayout).toBe(25);
+    expect(us?.variablePayout).toBe(15);
+    expect(head?.attainmentPct).toBe(121.43);
+    expect(head?.variablePayout).toBe(121.43);
+    expect(scenario.generatedArr).toBe(10200);
+  });
+
+  it("builds a uniform attainment range table", () => {
+    const rows = calculateAttainmentScenarios(hierarchyTeam, "USD", 0, 20, 10);
+    expect(rows.map((row) => row.attainmentPct)).toEqual([0, 10, 20]);
+    expect(rows[2]?.members.every((member) => member.attainmentPct === 20)).toBe(true);
   });
 
   it("breaks reporting cycles safely without dropping quota", () => {
@@ -517,17 +602,19 @@ describe("team import compatibility", () => {
       defaultCapPct: null,
     });
     expect(parsed.team.members[0]).toMatchObject({
-      targetVariable: 0,
-      quotaMode: "direct",
-      directQuota: 40000,
+      targetVariable: 5000,
+      quotaMode: "multiple",
+      quotaMultiple: 4,
       reportsToMemberId: null,
       payoutBasis: "team",
     });
+    expect(parsed.team.members[0].directQuota).toBeUndefined();
+    expect(calculateMemberValues(parsed.team.members[0]).monthlyQuota).toBe(40000);
     expect(parsed.team.members[1]).toMatchObject({
-      targetVariable: 0,
+      targetVariable: 30000,
       quotaMode: "direct",
       directQuota: 270000,
-      reportsToMemberId: null,
+      reportsToMemberId: "manager",
       payoutBasis: "individual",
     });
     expect(parsed.team.scenarios.map((scenario) => scenario.name)).toEqual([
@@ -540,5 +627,118 @@ describe("team import compatibility", () => {
       { manager: 100, rep: 100 },
       { manager: 150, rep: 150 },
     ]);
+  });
+
+  it("recovers targetVariable from legacy OTE when a previous migration stored 0", () => {
+    const parsed = deserializeTeam(JSON.stringify({
+      id: "legacy-zero-variable",
+      name: "Legacy zero variable",
+      members: [{
+        id: "rep",
+        name: "Rep",
+        base: 85000,
+        ote: 160000,
+        targetVariable: 0,
+        quotaType: "individual",
+        quotaMultiple: 4,
+      }],
+    }));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.team.members[0].targetVariable).toBe(75000);
+  });
+
+  it("clamps migrated variable compensation when legacy OTE is below base", () => {
+    const parsed = deserializeTeam(JSON.stringify({
+      id: "legacy-negative-variable",
+      name: "Legacy negative variable",
+      members: [{
+        id: "rep",
+        name: "Rep",
+        base: 5000,
+        ote: 4000,
+        quotaType: "individual",
+        quotaMultiple: 4,
+      }],
+    }));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.team.members[0].targetVariable).toBe(0);
+    expect(parsed.team.members[0].directQuota).toBe(16000);
+  });
+
+  it("uses the first legacy team manager for unassigned reports when several exist", () => {
+    const parsed = deserializeTeam(JSON.stringify({
+      id: "legacy-multiple-managers",
+      name: "Legacy multiple managers",
+      defaultQuotaMultiple: 4,
+      members: [
+        {
+          id: "manager-1",
+          name: "First manager",
+          base: 5000,
+          ote: 10000,
+          quotaType: "team",
+          quotaMultiple: 4,
+        },
+        {
+          id: "manager-2",
+          name: "Second manager",
+          base: 6000,
+          ote: 12000,
+          quotaType: "team",
+          quotaMultiple: 3,
+        },
+        {
+          id: "rep",
+          name: "Rep",
+          base: 4000,
+          ote: 7000,
+          quotaType: "individual",
+          quotaMultiple: 5,
+        },
+      ],
+    }));
+
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    expect(parsed.team.members.map((member) => [member.id, member.reportsToMemberId])).toEqual([
+      ["manager-1", null],
+      ["manager-2", null],
+      ["rep", "manager-1"],
+    ]);
+    expect(parsed.team.members.slice(0, 2).map((member) => ({
+      quotaMode: member.quotaMode,
+      quotaMultiple: member.quotaMultiple,
+      directQuota: member.directQuota,
+    }))).toEqual([
+      { quotaMode: "multiple", quotaMultiple: 4, directQuota: undefined },
+      { quotaMode: "multiple", quotaMultiple: 3, directQuota: undefined },
+    ]);
+  });
+
+  it("rejects wrapped exports from a newer schema but accepts raw legacy teams", () => {
+    const team = {
+      id: "future",
+      name: "Future team",
+      members: [],
+      schemaVersion: TEAM_SCHEMA_VERSION + 1,
+    };
+    const wrapped = deserializeTeam(JSON.stringify({
+      format: TEAM_EXPORT_FORMAT,
+      schemaVersion: TEAM_SCHEMA_VERSION + 1,
+      exportedAt: "2026-01-01",
+      team,
+    }));
+
+    expect(wrapped).toEqual({
+      ok: false,
+      error: `This team file uses schema version ${TEAM_SCHEMA_VERSION + 1}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`,
+    });
+
+    const raw = deserializeTeam(JSON.stringify(team));
+    expect(raw.ok).toBe(true);
   });
 });

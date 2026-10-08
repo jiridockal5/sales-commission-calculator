@@ -39,7 +39,9 @@ export function calculateVariablePayout(
     ? dec(attainmentPct)
     : D.min(dec(attainmentPct), D.max(dec(rules.capPct), 0));
   const attainment = D.max(cappedAttainment, 0);
-  if (attainment.lte(threshold) || targetVariable <= 0) return 0;
+  // Strictly below threshold pays nothing. At 100% (including threshold === 100)
+  // fall through to the full-payout branch.
+  if (attainment.lt(threshold) || targetVariable <= 0) return 0;
 
   if (attainment.lte(100)) {
     const span = dec(100).minus(threshold);
@@ -281,9 +283,45 @@ export function calculateTeamScenario(
       ),
     }
     : scenarioOrAttainment;
+  const hierarchy = buildHierarchy(team);
+  const derivedById = new Map(calculation.members.map((member) => [member.memberId, member]));
+  const descendantIds = (memberId: string): string[] => {
+    const ids: string[] = [];
+    const walk = (id: string) => {
+      for (const childId of hierarchy.childrenById.get(id) ?? []) {
+        ids.push(childId);
+        walk(childId);
+      }
+    };
+    walk(memberId);
+    return ids;
+  };
+
+  const ownAnnualQuotaReporting = (memberId: string): Decimal => {
+    const index = team.members.findIndex((member) => member.id === memberId);
+    if (index < 0) return ZERO;
+    const member = team.members[index];
+    const derived = calculation.members[index];
+    return dec(convertCurrency(derived.annualQuota, member.currency, reportingCurrency, team.fxRates));
+  };
+
+  const subtreeAttainmentPct = (memberId: string): number => {
+    const derived = derivedById.get(memberId);
+    if (!derived || derived.aggregateAnnualQuota === 0) return 0;
+    const ids = [memberId, ...descendantIds(memberId)];
+    const weighted = ids.reduce((sum, id) => {
+      const entered = scenario.attainmentByMemberId[id] ?? 0;
+      return sum.plus(ownAnnualQuotaReporting(id).mul(dec(entered).div(100)));
+    }, ZERO);
+    return money(weighted.div(derived.aggregateAnnualQuota).mul(100));
+  };
+
   const members: MemberScenarioResult[] = team.members.map((member, index) => {
     const derived = calculation.members[index];
-    const memberAttainment = scenario.attainmentByMemberId[member.id] ?? 0;
+    const enteredAttainment = scenario.attainmentByMemberId[member.id] ?? 0;
+    const memberAttainment = member.payoutBasis === "team"
+      ? subtreeAttainmentPct(member.id)
+      : enteredAttainment;
     const variablePayout = calculateVariablePayout(
       derived.monthlyVariable,
       memberAttainment,
@@ -300,13 +338,18 @@ export function calculateTeamScenario(
     };
   });
 
-  const totalCost = money(members.reduce((sum, scenario, index) => sum.plus(
-    convertCurrency(scenario.total, team.members[index].currency, reportingCurrency, team.fxRates),
+  const totalCost = money(members.reduce((sum, memberScenario, index) => sum.plus(
+    convertCurrency(memberScenario.total, team.members[index].currency, reportingCurrency, team.fxRates),
   ), ZERO));
-  const generatedArr = money(calculation.members.reduce((sum, member) => {
-    if (!member.isHierarchyRoot) return sum;
-    const attainment = scenario.attainmentByMemberId[member.memberId] ?? 0;
-    return sum.plus(dec(member.aggregateAnnualQuota).mul(dec(attainment).div(100)));
+  const generatedArr = money(team.members.reduce((sum, member, index) => {
+    const entered = scenario.attainmentByMemberId[member.id] ?? 0;
+    const annualQuota = convertCurrency(
+      calculation.members[index].annualQuota,
+      member.currency,
+      reportingCurrency,
+      team.fxRates,
+    );
+    return sum.plus(dec(annualQuota).mul(dec(entered).div(100)));
   }, ZERO));
   const annualizedCost = dec(totalCost).mul(12);
 

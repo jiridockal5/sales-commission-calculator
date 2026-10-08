@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { useTeamStore } from "@/store/teamStore";
 import type { TeamDefinition } from "./types";
 
@@ -76,6 +76,7 @@ function makeTeam(): TeamDefinition {
 
 afterEach(() => {
   useTeamStore.setState({ hydrated: false, teams: [], activeTeamId: null });
+  vi.unstubAllGlobals();
 });
 
 describe("team store hierarchy and scenarios", () => {
@@ -122,5 +123,71 @@ describe("team store hierarchy and scenarios", () => {
     useTeamStore.getState().updateMember("manager", { reportsToMemberId: "nested" });
     updated = useTeamStore.getState().teams[0];
     expect(updated.members.find((member) => member.id === "manager")?.reportsToMemberId).toBeNull();
+  });
+
+  it("migrates legacy compensation and hierarchy during localStorage hydration", () => {
+    const values = new Map<string, string>([
+      ["sales-team-definitions", JSON.stringify([{
+        id: "legacy",
+        name: "Legacy",
+        defaultQuotaMultiple: 4,
+        members: [
+          {
+            id: "manager",
+            name: "Manager",
+            base: 5000,
+            ote: 10000,
+            quotaType: "team",
+            quotaMultiple: 4,
+          },
+          {
+            id: "rep",
+            name: "Rep",
+            base: 6000,
+            ote: 9000,
+            quotaType: "individual",
+            quotaMultiple: 3,
+          },
+        ],
+      }])],
+    ]);
+    const localStorage = {
+      getItem: vi.fn((key: string) => values.get(key) ?? null),
+      setItem: vi.fn((key: string, value: string) => values.set(key, value)),
+      removeItem: vi.fn((key: string) => values.delete(key)),
+    };
+    vi.stubGlobal("window", {});
+    vi.stubGlobal("localStorage", localStorage);
+
+    useTeamStore.getState().hydrate();
+
+    const hydrated = useTeamStore.getState().teams[0];
+    expect(hydrated.members[0]).toMatchObject({
+      id: "manager",
+      targetVariable: 5000,
+      quotaMode: "multiple",
+      quotaMultiple: 4,
+      reportsToMemberId: null,
+    });
+    expect(hydrated.members[1]).toMatchObject({
+      id: "rep",
+      targetVariable: 3000,
+      quotaMode: "direct",
+      directQuota: 27000,
+      reportsToMemberId: "manager",
+    });
+    expect(JSON.parse(values.get("sales-team-definitions")!)[0].members)
+      .toEqual(hydrated.members);
+  });
+
+  it("stores an override equal to the team default as inherit", () => {
+    const team = makeTeam();
+    useTeamStore.setState({ hydrated: true, teams: [team], activeTeamId: team.id });
+
+    useTeamStore.getState().updateMember("rep", { thresholdPct: 25 });
+    expect(useTeamStore.getState().teams[0].members.find((member) => member.id === "rep")?.thresholdPct).toBe(25);
+
+    useTeamStore.getState().updateMember("rep", { thresholdPct: 0 });
+    expect(useTeamStore.getState().teams[0].members.find((member) => member.id === "rep")?.thresholdPct).toBeUndefined();
   });
 });

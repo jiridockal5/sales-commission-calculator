@@ -8,7 +8,7 @@ import { Sidebar } from "./Sidebar";
 import { SummaryStrip } from "./SummaryStrip";
 import { TopBar } from "./TopBar";
 
-const PAGES_WITHOUT_SUMMARY = ["/results", "/compare"];
+const PAGES_WITHOUT_SUMMARY = ["/results", "/compare", "/team"];
 
 function Notice() {
   const notice = usePlanStore((s) => s.notice);

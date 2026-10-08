@@ -58,6 +58,10 @@ export function normalizeTeam(team: TeamDefinition): TeamDefinition {
     ? raw.defaultQuotaMultiple
     : 4;
   const rawMembers = Array.isArray(raw.members) ? raw.members : [];
+  const legacyTeamManagerIds = new Set(rawMembers.flatMap((value) => {
+    const member = value as { id?: unknown; quotaType?: unknown };
+    return member.quotaType === "team" && typeof member.id === "string" ? [member.id] : [];
+  }));
   const members: TeamMember[] = rawMembers.map((value) => {
     const member = value as TeamMember & {
       ote?: unknown;
@@ -68,8 +72,11 @@ export function normalizeTeam(team: TeamDefinition): TeamDefinition {
     const legacyMultiple = typeof member.quotaMultiple === "number"
       ? member.quotaMultiple
       : defaultQuotaMultiple;
+    const isLegacyTeamManager = member.quotaType === "team";
     const quotaMode = member.quotaMode === "multiple" || member.quotaMode === "direct"
       ? member.quotaMode
+      : isLegacyTeamManager
+        ? "multiple"
       : legacyOte !== null
         ? "direct"
         : "multiple";
@@ -80,9 +87,15 @@ export function normalizeTeam(team: TeamDefinition): TeamDefinition {
     } = member;
     void _legacyOte;
     void _legacyQuotaType;
+    const hasExplicitTarget = typeof member.targetVariable === "number"
+      && !(member.targetVariable === 0 && legacyOte !== null);
     return {
       ...canonical,
-      targetVariable: typeof member.targetVariable === "number" ? member.targetVariable : 0,
+      targetVariable: hasExplicitTarget
+        ? member.targetVariable
+        : legacyOte !== null
+          ? Math.max(legacyOte - (typeof member.base === "number" ? member.base : 0), 0)
+          : 0,
       quotaMode,
       ...(quotaMode === "direct"
         ? { directQuota: typeof member.directQuota === "number"
@@ -103,6 +116,17 @@ export function normalizeTeam(team: TeamDefinition): TeamDefinition {
   for (const member of members) {
     if (member.reportsToMemberId === member.id || !memberIds.has(member.reportsToMemberId ?? "")) {
       member.reportsToMemberId = null;
+    }
+  }
+  const primaryLegacyManager = members.find((member) => legacyTeamManagerIds.has(member.id));
+  if (primaryLegacyManager) {
+    // Legacy files had no hierarchy. If several team-quota managers exist, keep
+    // each manager as a root and use the first in source order for unassigned
+    // non-manager members so migration is deterministic.
+    for (const member of members) {
+      if (!legacyTeamManagerIds.has(member.id) && member.reportsToMemberId === null) {
+        member.reportsToMemberId = primaryLegacyManager.id;
+      }
     }
   }
 
@@ -153,6 +177,17 @@ export function deserializeTeam(json: string): { ok: true; team: TeamDefinition 
     const data = JSON.parse(json);
     if (typeof data !== "object" || data === null) {
       return { ok: false, error: "Invalid JSON structure." };
+    }
+
+    if (
+      data.format === TEAM_EXPORT_FORMAT
+      && typeof data.schemaVersion === "number"
+      && data.schemaVersion > TEAM_SCHEMA_VERSION
+    ) {
+      return {
+        ok: false,
+        error: `This team file uses schema version ${data.schemaVersion}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`,
+      };
     }
     
     const team = data.format === TEAM_EXPORT_FORMAT && data.team ? data.team : data;

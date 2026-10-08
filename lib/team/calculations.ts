@@ -1,4 +1,5 @@
 import { dec, money, D } from "@/lib/commission-engine/money";
+import type Decimal from "decimal.js";
 import type {
   TeamDefinition,
   TeamMember,
@@ -6,39 +7,78 @@ import type {
   TeamTotals,
   TeamCalculationResult,
   CurrencyCode,
+  VariablePayoutRules,
+  MemberScenarioResult,
+  TeamScenarioResult,
+  TeamScenario,
 } from "./types";
+import {
+  DEFAULT_ACCELERATOR,
+  DEFAULT_CAP_PCT,
+  DEFAULT_THRESHOLD_PCT,
+} from "./export";
 
 const ZERO = new D(0);
 
-export function calculateMemberValues(
-  member: TeamMember,
-  teamOteMonthly: number,
-  teamQuotaCurrency: CurrencyCode = member.currency,
-): DerivedMemberValues {
+export function resolvePayoutRules(member: TeamMember, team: TeamDefinition): VariablePayoutRules {
+  return {
+    thresholdPct: member.thresholdPct ?? team.defaultThresholdPct ?? DEFAULT_THRESHOLD_PCT,
+    accelerator: member.accelerator ?? team.defaultAccelerator ?? DEFAULT_ACCELERATOR,
+    capPct: member.capPct === undefined ? (team.defaultCapPct ?? DEFAULT_CAP_PCT) : member.capPct,
+  };
+}
+
+/** Variable payout for one compensation period at the supplied quota attainment. */
+export function calculateVariablePayout(
+  targetVariable: number,
+  attainmentPct: number,
+  rules: VariablePayoutRules,
+): number {
+  const threshold = D.min(D.max(dec(rules.thresholdPct), 0), 100);
+  const cappedAttainment = rules.capPct === null
+    ? dec(attainmentPct)
+    : D.min(dec(attainmentPct), D.max(dec(rules.capPct), 0));
+  const attainment = D.max(cappedAttainment, 0);
+  if (attainment.lte(threshold) || targetVariable <= 0) return 0;
+
+  if (attainment.lte(100)) {
+    const span = dec(100).minus(threshold);
+    return span.isZero()
+      ? money(targetVariable)
+      : money(dec(targetVariable).mul(attainment.minus(threshold).div(span)));
+  }
+
+  const accelerated = attainment.minus(100).div(100).mul(D.max(dec(rules.accelerator), 0));
+  return money(dec(targetVariable).mul(dec(1).plus(accelerated)));
+}
+
+export function calculateMemberValues(member: TeamMember): DerivedMemberValues {
   const base = dec(member.base);
-  const ote = dec(member.ote);
-  const variable = ote.minus(base);
+  const variable = dec(member.targetVariable);
+  const ote = base.plus(variable);
   const basePct = ote.isZero() ? 0 : money(base.div(ote).mul(100));
   const variablePct = ote.isZero() ? 0 : money(variable.div(ote).mul(100));
 
   const isMonthly = member.payPeriod === "monthly";
   const monthlyBase = isMonthly ? member.base : money(base.div(12));
-  const monthlyOte = isMonthly ? member.ote : money(ote.div(12));
-  const monthlyVariable = monthlyOte - monthlyBase;
+  const monthlyOte = isMonthly ? money(ote) : money(ote.div(12));
+  const monthlyVariable = isMonthly ? member.targetVariable : money(variable.div(12));
 
   const annualBase = isMonthly ? money(base.mul(12)) : member.base;
-  const annualOte = isMonthly ? money(ote.mul(12)) : member.ote;
-  const annualVariable = annualOte - annualBase;
+  const annualOte = isMonthly ? money(ote.mul(12)) : money(ote);
+  const annualVariable = isMonthly ? money(variable.mul(12)) : member.targetVariable;
 
   let monthlyQuota: number;
   let annualQuota: number;
 
-  if (member.quotaType === "team") {
-    monthlyQuota = money(dec(teamOteMonthly).mul(member.quotaMultiple));
-    annualQuota = money(dec(monthlyQuota).mul(12));
+  if (member.quotaMode === "direct") {
+    const directQuota = dec(member.directQuota ?? 0);
+    monthlyQuota = isMonthly ? money(directQuota) : money(directQuota.div(12));
+    annualQuota = isMonthly ? money(directQuota.mul(12)) : money(directQuota);
   } else {
-    monthlyQuota = money(dec(monthlyOte).mul(member.quotaMultiple));
-    annualQuota = money(dec(annualOte).mul(member.quotaMultiple));
+    const quotaForPayPeriod = ote.mul(member.quotaMultiple ?? 0);
+    monthlyQuota = isMonthly ? money(quotaForPayPeriod) : money(quotaForPayPeriod.div(12));
+    annualQuota = isMonthly ? money(quotaForPayPeriod.mul(12)) : money(quotaForPayPeriod);
   }
 
   return {
@@ -54,7 +94,11 @@ export function calculateMemberValues(
     annualVariable,
     monthlyQuota,
     annualQuota,
-    quotaCurrency: member.quotaType === "team" ? teamQuotaCurrency : member.currency,
+    quotaCurrency: member.currency,
+    aggregateMonthlyQuota: 0,
+    aggregateAnnualQuota: 0,
+    aggregateQuotaCurrency: member.currency,
+    isHierarchyRoot: false,
   };
 }
 
@@ -78,48 +122,131 @@ export function convertCurrency(amount: number, fromCurrency: CurrencyCode, toCu
   return amount;
 }
 
+function buildHierarchy(team: TeamDefinition): {
+  parentById: Map<string, string | null>;
+  childrenById: Map<string, string[]>;
+  rootIds: string[];
+  cycleMemberIds: string[];
+} {
+  const ids = new Set(team.members.map((member) => member.id));
+  const parentById = new Map<string, string | null>(
+    team.members.map((member) => [
+      member.id,
+      member.reportsToMemberId && ids.has(member.reportsToMemberId) && member.reportsToMemberId !== member.id
+        ? member.reportsToMemberId
+        : null,
+    ]),
+  );
+  const state = new Map<string, 0 | 1 | 2>();
+  const cycleMemberIds = new Set<string>();
+
+  const visit = (id: string, path: string[]): void => {
+    state.set(id, 1);
+    path.push(id);
+    const parentId = parentById.get(id);
+    if (parentId) {
+      const parentState = state.get(parentId) ?? 0;
+      if (parentState === 0) {
+        visit(parentId, path);
+      } else if (parentState === 1) {
+        const cycleStart = path.indexOf(parentId);
+        const cycle = path.slice(cycleStart);
+        cycle.forEach((memberId) => cycleMemberIds.add(memberId));
+        // Break one edge deterministically so every cyclic component still has a root.
+        parentById.set(cycle[0], null);
+      }
+    }
+    path.pop();
+    state.set(id, 2);
+  };
+
+  for (const member of team.members) {
+    if ((state.get(member.id) ?? 0) === 0) visit(member.id, []);
+  }
+
+  const childrenById = new Map(team.members.map((member) => [member.id, [] as string[]]));
+  for (const [memberId, parentId] of parentById) {
+    if (parentId) childrenById.get(parentId)?.push(memberId);
+  }
+  const rootIds = team.members
+    .filter((member) => parentById.get(member.id) === null)
+    .map((member) => member.id);
+
+  return { parentById, childrenById, rootIds, cycleMemberIds: [...cycleMemberIds] };
+}
+
 export function calculateTeam(team: TeamDefinition, reportingCurrency: CurrencyCode): TeamCalculationResult {
-  const teamOteMonthly = team.members.reduce((sum, member) => {
-    const ote = dec(member.ote);
-    const monthlyOte = member.payPeriod === "monthly" ? ote : ote.div(12);
-    const convertedOte = convertCurrency(
-      money(monthlyOte),
+  const members = team.members.map((member) =>
+    {
+      const derived = calculateMemberValues(member);
+      derived.aggregateQuotaCurrency = reportingCurrency;
+      return derived;
+    },
+  );
+  const derivedById = new Map(members.map((member) => [member.memberId, member]));
+  const memberById = new Map(team.members.map((member) => [member.id, member]));
+  const hierarchy = buildHierarchy(team);
+
+  const aggregateQuota = (memberId: string): { monthly: Decimal; annual: Decimal } => {
+    const member = memberById.get(memberId);
+    const derived = derivedById.get(memberId);
+    if (!member || !derived) return { monthly: ZERO, annual: ZERO };
+    let monthly = dec(convertCurrency(
+      derived.monthlyQuota,
       member.currency,
       reportingCurrency,
       team.fxRates,
-    );
-    return sum.plus(convertedOte);
-  }, ZERO);
+    ));
+    let annual = dec(convertCurrency(
+      derived.annualQuota,
+      member.currency,
+      reportingCurrency,
+      team.fxRates,
+    ));
+    for (const childId of hierarchy.childrenById.get(memberId) ?? []) {
+      const child = aggregateQuota(childId);
+      monthly = monthly.plus(child.monthly);
+      annual = annual.plus(child.annual);
+    }
+    derived.aggregateMonthlyQuota = money(monthly);
+    derived.aggregateAnnualQuota = money(annual);
+    derived.isHierarchyRoot = hierarchy.parentById.get(memberId) === null;
+    return { monthly, annual };
+  };
 
-  const members = team.members.map((member) =>
-    calculateMemberValues(member, money(teamOteMonthly), reportingCurrency),
-  );
+  let teamMonthlyQuotaDecimal = ZERO;
+  let teamAnnualQuotaDecimal = ZERO;
+  for (const rootId of hierarchy.rootIds) {
+    const aggregate = aggregateQuota(rootId);
+    teamMonthlyQuotaDecimal = teamMonthlyQuotaDecimal.plus(aggregate.monthly);
+    teamAnnualQuotaDecimal = teamAnnualQuotaDecimal.plus(aggregate.annual);
+  }
 
-  let totalMonthlyBase = 0;
-  let totalMonthlyOte = 0;
-  let totalMonthlyVariable = 0;
-  let totalAnnualBase = 0;
-  let totalAnnualOte = 0;
-  let totalAnnualVariable = 0;
-  let totalMonthlyQuota = 0;
-  let totalAnnualQuota = 0;
+  let totalMonthlyBase = ZERO;
+  let totalMonthlyOte = ZERO;
+  let totalMonthlyVariable = ZERO;
+  let totalAnnualBase = ZERO;
+  let totalAnnualOte = ZERO;
+  let totalAnnualVariable = ZERO;
+  let totalMonthlyQuota = ZERO;
+  let totalAnnualQuota = ZERO;
 
   for (let i = 0; i < team.members.length; i++) {
     const member = team.members[i];
     const derived = members[i];
 
-    totalMonthlyBase += convertCurrency(derived.monthlyBase, member.currency, reportingCurrency, team.fxRates);
-    totalMonthlyOte += convertCurrency(derived.monthlyOte, member.currency, reportingCurrency, team.fxRates);
-    totalMonthlyVariable += convertCurrency(derived.monthlyVariable, member.currency, reportingCurrency, team.fxRates);
-    totalAnnualBase += convertCurrency(derived.annualBase, member.currency, reportingCurrency, team.fxRates);
-    totalAnnualOte += convertCurrency(derived.annualOte, member.currency, reportingCurrency, team.fxRates);
-    totalAnnualVariable += convertCurrency(derived.annualVariable, member.currency, reportingCurrency, team.fxRates);
-    totalMonthlyQuota += convertCurrency(derived.monthlyQuota, derived.quotaCurrency, reportingCurrency, team.fxRates);
-    totalAnnualQuota += convertCurrency(derived.annualQuota, derived.quotaCurrency, reportingCurrency, team.fxRates);
+    totalMonthlyBase = totalMonthlyBase.plus(convertCurrency(derived.monthlyBase, member.currency, reportingCurrency, team.fxRates));
+    totalMonthlyOte = totalMonthlyOte.plus(convertCurrency(derived.monthlyOte, member.currency, reportingCurrency, team.fxRates));
+    totalMonthlyVariable = totalMonthlyVariable.plus(convertCurrency(derived.monthlyVariable, member.currency, reportingCurrency, team.fxRates));
+    totalAnnualBase = totalAnnualBase.plus(convertCurrency(derived.annualBase, member.currency, reportingCurrency, team.fxRates));
+    totalAnnualOte = totalAnnualOte.plus(convertCurrency(derived.annualOte, member.currency, reportingCurrency, team.fxRates));
+    totalAnnualVariable = totalAnnualVariable.plus(convertCurrency(derived.annualVariable, member.currency, reportingCurrency, team.fxRates));
+    totalMonthlyQuota = totalMonthlyQuota.plus(convertCurrency(derived.monthlyQuota, member.currency, reportingCurrency, team.fxRates));
+    totalAnnualQuota = totalAnnualQuota.plus(convertCurrency(derived.annualQuota, member.currency, reportingCurrency, team.fxRates));
   }
 
-  const teamMonthlyQuota = money(teamOteMonthly.mul(team.defaultQuotaMultiple));
-  const teamAnnualQuota = money(dec(teamMonthlyQuota).mul(12));
+  const teamMonthlyQuota = money(teamMonthlyQuotaDecimal);
+  const teamAnnualQuota = money(teamAnnualQuotaDecimal);
 
   const totals: TeamTotals = {
     reportingCurrency,
@@ -135,5 +262,80 @@ export function calculateTeam(team: TeamDefinition, reportingCurrency: CurrencyC
     teamAnnualQuota,
   };
 
-  return { team, members, totals };
+  return { team, members, totals, hierarchyCycleMemberIds: hierarchy.cycleMemberIds };
+}
+
+export function calculateTeamScenario(
+  team: TeamDefinition,
+  reportingCurrency: CurrencyCode,
+  scenarioOrAttainment: TeamScenario | number,
+): TeamScenarioResult {
+  const calculation = calculateTeam(team, reportingCurrency);
+  const uniformAttainment = typeof scenarioOrAttainment === "number" ? scenarioOrAttainment : null;
+  const scenario: TeamScenario = typeof scenarioOrAttainment === "number"
+    ? {
+      id: `attainment-${scenarioOrAttainment}`,
+      name: `${scenarioOrAttainment}%`,
+      attainmentByMemberId: Object.fromEntries(
+        team.members.map((member) => [member.id, scenarioOrAttainment]),
+      ),
+    }
+    : scenarioOrAttainment;
+  const members: MemberScenarioResult[] = team.members.map((member, index) => {
+    const derived = calculation.members[index];
+    const memberAttainment = scenario.attainmentByMemberId[member.id] ?? 0;
+    const variablePayout = calculateVariablePayout(
+      derived.monthlyVariable,
+      memberAttainment,
+      resolvePayoutRules(member, team),
+    );
+    return {
+      memberId: member.id,
+      currency: member.currency,
+      attainmentPct: memberAttainment,
+      payoutBasis: member.payoutBasis,
+      base: derived.monthlyBase,
+      variablePayout,
+      total: money(dec(derived.monthlyBase).plus(variablePayout)),
+    };
+  });
+
+  const totalCost = money(members.reduce((sum, scenario, index) => sum.plus(
+    convertCurrency(scenario.total, team.members[index].currency, reportingCurrency, team.fxRates),
+  ), ZERO));
+  const generatedArr = money(calculation.members.reduce((sum, member) => {
+    if (!member.isHierarchyRoot) return sum;
+    const attainment = scenario.attainmentByMemberId[member.memberId] ?? 0;
+    return sum.plus(dec(member.aggregateAnnualQuota).mul(dec(attainment).div(100)));
+  }, ZERO));
+  const annualizedCost = dec(totalCost).mul(12);
+
+  return {
+    scenarioId: scenario.id,
+    scenarioName: scenario.name,
+    attainmentPct: uniformAttainment,
+    members,
+    totalCost,
+    generatedArr,
+    arrCostRatio: annualizedCost.isZero()
+      ? null
+      : dec(generatedArr).div(annualizedCost).toDecimalPlaces(2).toNumber(),
+    reportingCurrency,
+  };
+}
+
+export function calculateAttainmentScenarios(
+  team: TeamDefinition,
+  reportingCurrency: CurrencyCode,
+  startPct: number,
+  endPct: number,
+  stepPct: number,
+): TeamScenarioResult[] {
+  const start = Math.max(0, startPct);
+  const end = Math.max(start, endPct);
+  const step = Math.max(1, stepPct);
+  const count = Math.min(201, Math.floor((end - start) / step) + 1);
+  return Array.from({ length: count }, (_, index) =>
+    calculateTeamScenario(team, reportingCurrency, money(dec(start).plus(dec(step).mul(index)))),
+  );
 }

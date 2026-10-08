@@ -5,10 +5,16 @@ import { Download, Plus, Trash2, Upload, Eye, DollarSign } from "lucide-react";
 import { Button, Field, Select, TextInput, NumberInput } from "@/components/ui/controls";
 import { Alert, Card, PageHeader } from "@/components/ui/layout";
 import { useTeamStore, useActiveTeam } from "@/store/teamStore";
-import { calculateTeam } from "@/lib/team/calculations";
+import { calculateTeam, calculateTeamScenario } from "@/lib/team/calculations";
 import { serializeTeam, deserializeTeam } from "@/lib/team/export";
 import { formatCurrency } from "@/lib/format/currency";
-import type { CurrencyCode, TeamMemberRole, PayPeriodType, QuotaType } from "@/lib/team/types";
+import type {
+  CurrencyCode,
+  TeamMemberRole,
+  PayPeriodType,
+  PayoutBasis,
+  QuotaMode,
+} from "@/lib/team/types";
 import { CURRENCIES } from "@/lib/format/currency";
 
 const ROLE_OPTIONS: { value: TeamMemberRole; label: string }[] = [
@@ -25,10 +31,32 @@ const PAY_PERIOD_OPTIONS: { value: PayPeriodType; label: string }[] = [
   { value: "annual", label: "Annual" },
 ];
 
-const QUOTA_TYPE_OPTIONS: { value: QuotaType; label: string }[] = [
-  { value: "individual", label: "Individual (member OTE × multiple)" },
-  { value: "team", label: "Team (total team OTE × multiple)" },
+const QUOTA_TYPE_OPTIONS: { value: PayoutBasis; label: string }[] = [
+  { value: "individual", label: "Individual attainment" },
+  { value: "team", label: "Team / subtree attainment" },
 ];
+
+const QUOTA_MODE_OPTIONS: { value: QuotaMode; label: string }[] = [
+  { value: "multiple", label: "OTE multiple" },
+  { value: "direct", label: "Direct quota" },
+];
+
+function canReportTo(
+  memberId: string,
+  managerId: string,
+  members: Array<{ id: string; reportsToMemberId: string | null }>,
+): boolean {
+  if (memberId === managerId) return false;
+  const byId = new Map(members.map((member) => [member.id, member]));
+  const visited = new Set<string>();
+  let currentId: string | null = managerId;
+  while (currentId) {
+    if (currentId === memberId || visited.has(currentId)) return false;
+    visited.add(currentId);
+    currentId = byId.get(currentId)?.reportsToMemberId ?? null;
+  }
+  return true;
+}
 
 export default function TeamPage() {
   const hydrated = useTeamStore((s) => s.hydrated);
@@ -41,10 +69,15 @@ export default function TeamPage() {
   const updateDefaultQuotaMultiple = useTeamStore((s) => s.updateDefaultQuotaMultiple);
   const updateActiveTeam = useTeamStore((s) => s.updateActiveTeam);
   const importTeam = useTeamStore((s) => s.importTeam);
+  const addScenario = useTeamStore((s) => s.addScenario);
+  const renameScenario = useTeamStore((s) => s.renameScenario);
+  const deleteScenario = useTeamStore((s) => s.deleteScenario);
+  const setScenarioAttainment = useTeamStore((s) => s.setScenarioAttainment);
 
   const [reportingCurrency, setReportingCurrency] = useState<CurrencyCode>("CZK");
   const [showJson, setShowJson] = useState(false);
   const [jsonContent, setJsonContent] = useState("");
+  const [newScenarioName, setNewScenarioName] = useState("");
 
   useEffect(() => {
     hydrate();
@@ -53,6 +86,10 @@ export default function TeamPage() {
   const result = useMemo(() => {
     if (!team) return null;
     return calculateTeam(team, reportingCurrency);
+  }, [team, reportingCurrency]);
+  const scenarioResults = useMemo(() => {
+    if (!team) return [];
+    return team.scenarios.map((scenario) => calculateTeamScenario(team, reportingCurrency, scenario));
   }, [team, reportingCurrency]);
 
   if (!hydrated || !team || !result) {
@@ -70,9 +107,11 @@ export default function TeamPage() {
       currency: "CZK",
       payPeriod: "monthly",
       base: 85000,
-      ote: 160000,
-      quotaType: "individual",
+      targetVariable: 75000,
+      quotaMode: "multiple",
       quotaMultiple: team.defaultQuotaMultiple,
+      reportsToMemberId: null,
+      payoutBasis: "individual",
     });
   };
 
@@ -120,7 +159,7 @@ export default function TeamPage() {
     <div className="space-y-5">
       <PageHeader
         title="Sales Team"
-        description="Define your sales team structure and derive compensation goals from OTE and quota multiples."
+        description="Model reporting lines, quotas, payout rules, and named attainment scenarios."
         actions={
           <>
             <Button onClick={handleImport}>
@@ -175,6 +214,34 @@ export default function TeamPage() {
                   placeholder="4"
                 />
               </Field>
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Field label="Default Threshold" hint="No variable payout at or below this attainment.">
+                  <NumberInput
+                    value={team.defaultThresholdPct}
+                    onChange={(v) => updateActiveTeam((t) => ({ ...t, defaultThresholdPct: v ?? 0 }))}
+                    min={0}
+                    max={100}
+                    suffix="%"
+                  />
+                </Field>
+                <Field label="Default Accelerator" hint="Variable payout multiple above 100%.">
+                  <NumberInput
+                    value={team.defaultAccelerator}
+                    onChange={(v) => updateActiveTeam((t) => ({ ...t, defaultAccelerator: v ?? 1 }))}
+                    min={0}
+                    suffix="×"
+                  />
+                </Field>
+                <Field label="Default Cap" hint="Blank means uncapped.">
+                  <NumberInput
+                    value={team.defaultCapPct}
+                    onChange={(defaultCapPct) => updateActiveTeam((t) => ({ ...t, defaultCapPct }))}
+                    allowNull
+                    min={0}
+                    suffix="%"
+                  />
+                </Field>
+              </div>
               <Field label="Reporting Currency" hint="Currency for totals and FX conversion.">
                 <Select<CurrencyCode>
                   value={reportingCurrency}
@@ -202,7 +269,7 @@ export default function TeamPage() {
 
           <Card
             title="Team Members"
-            description="Quotas are calculated from OTE: individual quotas use the member's OTE, while team quotas use the total team OTE converted to the reporting currency."
+            description="Each member has an own quota. Reporting lines roll descendant quotas into manager aggregates without double counting."
             actions={
               <Button onClick={handleAddMember} size="sm">
                 <Plus className="h-3.5 w-3.5" />
@@ -210,6 +277,11 @@ export default function TeamPage() {
               </Button>
             }
           >
+            {result.hierarchyCycleMemberIds.length > 0 && (
+              <Alert>
+                A reporting cycle was detected. Calculation broke it safely; update the affected reporting lines.
+              </Alert>
+            )}
             {team.members.length === 0 ? (
               <Alert>No team members yet. Click "Add Member" to get started.</Alert>
             ) : (
@@ -259,40 +331,158 @@ export default function TeamPage() {
                             min={0}
                           />
                         </Field>
-                        <Field label="OTE">
+                        <Field label="Target Variable">
                           <NumberInput
-                            value={member.ote}
-                            onChange={(v) => updateMember(member.id, { ote: v ?? 0 })}
+                            value={member.targetVariable}
+                            onChange={(v) => updateMember(member.id, { targetVariable: v ?? 0 })}
                             min={0}
                           />
                         </Field>
-                        <Field label="Quota Type">
-                          <Select<QuotaType>
-                            value={member.quotaType}
-                            onChange={(quotaType) => updateMember(member.id, { quotaType })}
+                        <Field label="OTE" hint="Derived as base + target variable.">
+                          <NumberInput value={member.base + member.targetVariable} onChange={() => {}} disabled />
+                        </Field>
+                        <Field label="Quota Mode">
+                          <Select<QuotaMode>
+                            value={member.quotaMode}
+                            onChange={(quotaMode) => updateMember(member.id, quotaMode === "direct"
+                              ? {
+                                quotaMode,
+                                directQuota: member.payPeriod === "monthly"
+                                  ? derived.monthlyQuota
+                                  : derived.annualQuota,
+                              }
+                              : { quotaMode, quotaMultiple: member.quotaMultiple ?? team.defaultQuotaMultiple })}
+                            options={QUOTA_MODE_OPTIONS}
+                          />
+                        </Field>
+                        {member.quotaMode === "direct" ? (
+                          <Field label="Direct Quota" hint={`Amount per ${member.payPeriod} pay period.`}>
+                            <NumberInput
+                              value={member.directQuota ?? 0}
+                              onChange={(directQuota) => updateMember(member.id, { directQuota: directQuota ?? 0 })}
+                              min={0}
+                            />
+                          </Field>
+                        ) : (
+                          <Field label="OTE Quota Multiple" hint="Multiplies OTE in the selected pay period.">
+                            <NumberInput
+                              value={member.quotaMultiple ?? team.defaultQuotaMultiple}
+                              onChange={(quotaMultiple) => updateMember(member.id, { quotaMultiple: quotaMultiple ?? team.defaultQuotaMultiple })}
+                              min={0}
+                            />
+                          </Field>
+                        )}
+                        <Field label="Reports To" hint="Only cycle-safe reporting choices are available.">
+                          <Select<string>
+                            value={member.reportsToMemberId ?? ""}
+                            onChange={(reportsToMemberId) => updateMember(member.id, {
+                              reportsToMemberId: reportsToMemberId || null,
+                            })}
+                            options={[
+                              { value: "", label: "No manager (root)" },
+                              ...team.members
+                                .filter((candidate) => canReportTo(member.id, candidate.id, team.members))
+                                .map((candidate) => ({ value: candidate.id, label: candidate.name })),
+                            ]}
+                          />
+                        </Field>
+                        <Field
+                          label="Payout Basis"
+                          hint={member.payoutBasis === "team"
+                            ? "Scenario percentage represents attainment for this member's subtree."
+                            : "Scenario percentage represents this member's personal attainment."}
+                        >
+                          <Select<PayoutBasis>
+                            value={member.payoutBasis}
+                            onChange={(payoutBasis) => updateMember(member.id, { payoutBasis })}
                             options={QUOTA_TYPE_OPTIONS}
                           />
                         </Field>
-                        <Field label="OTE Quota Multiple" hint="Multiplies monthly OTE, not variable compensation.">
-                          <NumberInput
-                            value={member.quotaMultiple}
-                            onChange={(v) => updateMember(member.id, { quotaMultiple: v ?? 4 })}
-                            min={0}
+                        <Field label="Threshold Rule">
+                          <Select<"inherit" | "override">
+                            value={member.thresholdPct === undefined ? "inherit" : "override"}
+                            onChange={(mode) => updateMember(member.id, {
+                              thresholdPct: mode === "inherit" ? undefined : team.defaultThresholdPct,
+                            })}
+                            options={[
+                              { value: "inherit", label: `Inherit team default (${team.defaultThresholdPct}%)` },
+                              { value: "override", label: "Override" },
+                            ]}
                           />
                         </Field>
+                        {member.thresholdPct !== undefined && (
+                          <Field label="Threshold Override">
+                            <NumberInput
+                              value={member.thresholdPct}
+                              onChange={(thresholdPct) => updateMember(member.id, { thresholdPct: thresholdPct ?? 0 })}
+                              min={0}
+                              max={100}
+                              suffix="%"
+                            />
+                          </Field>
+                        )}
+                        <Field label="Accelerator Rule">
+                          <Select<"inherit" | "override">
+                            value={member.accelerator === undefined ? "inherit" : "override"}
+                            onChange={(mode) => updateMember(member.id, {
+                              accelerator: mode === "inherit" ? undefined : team.defaultAccelerator,
+                            })}
+                            options={[
+                              { value: "inherit", label: `Inherit team default (${team.defaultAccelerator}×)` },
+                              { value: "override", label: "Override" },
+                            ]}
+                          />
+                        </Field>
+                        {member.accelerator !== undefined && (
+                          <Field label="Accelerator Override">
+                            <NumberInput
+                              value={member.accelerator}
+                              onChange={(accelerator) => updateMember(member.id, { accelerator: accelerator ?? 1 })}
+                              min={0}
+                              suffix="×"
+                            />
+                          </Field>
+                        )}
+                        <Field label="Cap Rule">
+                          <Select<"inherit" | "uncapped" | "custom">
+                            value={member.capPct === undefined ? "inherit" : member.capPct === null ? "uncapped" : "custom"}
+                            onChange={(mode) => updateMember(member.id, {
+                              capPct: mode === "inherit" ? undefined : mode === "uncapped" ? null : (team.defaultCapPct ?? 200),
+                            })}
+                            options={[
+                              { value: "inherit", label: `Inherit (${team.defaultCapPct === null ? "uncapped" : `${team.defaultCapPct}%`})` },
+                              { value: "uncapped", label: "Uncapped" },
+                              { value: "custom", label: "Custom cap" },
+                            ]}
+                          />
+                        </Field>
+                        {typeof member.capPct === "number" && (
+                          <Field label="Custom Cap">
+                            <NumberInput
+                              value={member.capPct}
+                              onChange={(capPct) => updateMember(member.id, { capPct: capPct ?? 200 })}
+                              min={0}
+                              suffix="%"
+                            />
+                          </Field>
+                        )}
                       </div>
-                      <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs sm:grid-cols-3">
+                      <div className="mt-3 grid gap-2 border-t border-slate-100 pt-3 text-xs sm:grid-cols-2 lg:grid-cols-4">
                         <div>
-                          <span className="text-slate-500">Variable:</span>{" "}
-                          <span className="font-medium">{formatCurrency(derived.variable, member.currency)}</span>
+                          <span className="text-slate-500">Own monthly quota:</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.monthlyQuota, member.currency)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500">Monthly Quota (from OTE):</span>{" "}
-                          <span className="font-medium">{formatCurrency(derived.monthlyQuota, derived.quotaCurrency)}</span>
+                          <span className="text-slate-500">Own annual quota:</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.annualQuota, member.currency)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500">Annual Quota (from OTE):</span>{" "}
-                          <span className="font-medium">{formatCurrency(derived.annualQuota, derived.quotaCurrency)}</span>
+                          <span className="text-slate-500">Aggregate monthly ({reportingCurrency}):</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.aggregateMonthlyQuota, reportingCurrency)}</span>
+                        </div>
+                        <div>
+                          <span className="text-slate-500">Aggregate annual ({reportingCurrency}):</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.aggregateAnnualQuota, reportingCurrency)}</span>
                         </div>
                       </div>
                     </div>
@@ -378,6 +568,128 @@ export default function TeamPage() {
           </div>
         </Card>
       </div>
+
+      <Card
+        title="Named Scenarios"
+        description="Set personal attainment for individual payouts and subtree attainment for team-based payouts."
+      >
+        <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end">
+          <Field label="New Scenario" className="sm:max-w-xs">
+            <TextInput
+              value={newScenarioName}
+              onChange={setNewScenarioName}
+              placeholder="e.g. Stretch"
+            />
+          </Field>
+          <Button
+            onClick={() => {
+              const name = newScenarioName.trim();
+              if (!name) return;
+              addScenario(name);
+              setNewScenarioName("");
+            }}
+          >
+            <Plus className="h-3.5 w-3.5" />
+            Add Scenario
+          </Button>
+        </div>
+
+        {team.scenarios.length === 0 ? (
+          <Alert>No scenarios yet. Add one to model monthly payout and annual ARR.</Alert>
+        ) : (
+          <>
+            <div className="mb-5 overflow-x-auto">
+              <table className="w-full min-w-max text-left text-xs">
+                <thead className="border-b border-slate-200 text-slate-500">
+                  <tr>
+                    <th className="px-2 py-2">Scenario</th>
+                    {team.members.map((member) => (
+                      <th key={member.id} className="px-2 py-2">
+                        <div>{member.name}</div>
+                        <div className="font-normal">
+                          {member.payoutBasis === "team" ? "Subtree attainment" : "Personal attainment"}
+                        </div>
+                      </th>
+                    ))}
+                    <th className="px-2 py-2">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {team.scenarios.map((scenario) => (
+                    <tr key={scenario.id} className="border-b border-slate-100 align-top">
+                      <td className="min-w-44 px-2 py-2">
+                        <TextInput
+                          value={scenario.name}
+                          onChange={(name) => renameScenario(scenario.id, name)}
+                          ariaLabel="Scenario name"
+                        />
+                      </td>
+                      {team.members.map((member) => (
+                        <td key={member.id} className="min-w-32 px-2 py-2">
+                          <NumberInput
+                            value={scenario.attainmentByMemberId[member.id] ?? 0}
+                            onChange={(attainment) => setScenarioAttainment(
+                              scenario.id,
+                              member.id,
+                              attainment ?? 0,
+                            )}
+                            min={0}
+                            suffix="%"
+                            ariaLabel={`${scenario.name} attainment for ${member.name}`}
+                          />
+                        </td>
+                      ))}
+                      <td className="px-2 py-2">
+                        <Button
+                          onClick={() => deleteScenario(scenario.id)}
+                          size="sm"
+                          variant="ghost"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                          Delete
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-max text-left text-xs">
+                <thead className="border-b border-slate-200 text-slate-500">
+                  <tr>
+                    <th className="px-2 py-2">Scenario</th>
+                    {team.members.map((member) => (
+                      <th key={member.id} className="px-2 py-2">{member.name} ({member.currency})</th>
+                    ))}
+                    <th className="px-2 py-2">Monthly Cost ({reportingCurrency})</th>
+                    <th className="px-2 py-2">Annual ARR ({reportingCurrency})</th>
+                    <th className="px-2 py-2">ARR / Annualized Cost</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scenarioResults.map((scenario) => (
+                    <tr key={scenario.scenarioId} className="border-b border-slate-100 align-top">
+                      <td className="px-2 py-2 font-semibold">{scenario.scenarioName}</td>
+                      {scenario.members.map((memberScenario) => (
+                        <td key={memberScenario.memberId} className="px-2 py-2">
+                          <div>Monthly base: {formatCurrency(memberScenario.base, memberScenario.currency)}</div>
+                          <div>Variable payout: {formatCurrency(memberScenario.variablePayout, memberScenario.currency)}</div>
+                          <div className="font-medium">Monthly total: {formatCurrency(memberScenario.total, memberScenario.currency)}</div>
+                        </td>
+                      ))}
+                      <td className="px-2 py-2 font-medium">{formatCurrency(scenario.totalCost, reportingCurrency)}</td>
+                      <td className="px-2 py-2 font-medium">{formatCurrency(scenario.generatedArr, reportingCurrency)}</td>
+                      <td className="px-2 py-2">{scenario.arrCostRatio === null ? "—" : `${scenario.arrCostRatio}×`}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Card>
     </div>
   );
 }

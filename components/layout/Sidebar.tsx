@@ -9,6 +9,7 @@ import {
   SlidersHorizontal,
   Tags,
   Target,
+  Users,
   Wallet,
   X,
 } from "lucide-react";
@@ -23,6 +24,7 @@ export const NAV_ITEMS = [
   { href: "/revenue", label: "Revenue types", icon: Tags },
   { href: "/advanced", label: "Advanced rules", icon: SlidersHorizontal },
   { href: "/compensation", label: "Compensation", icon: Wallet },
+  { href: "/team", label: "Sales team", icon: Users },
   { href: "/results", label: "Results", icon: BarChart3 },
   { href: "/compare", label: "Compare plans", icon: GitCompareArrows },
 ];
@@ -58,7 +60,7 @@ export function Sidebar({ open, onClose }: { open: boolean; onClose: () => void 
             const Icon = item.icon;
             return (
               <div key={item.href}>
-                {i === 6 && <div className="mx-2 my-2 border-t border-slate-100" />}
+                {i === 7 && <div className="mx-2 my-2 border-t border-slate-100" />}
                 <Link
                   href={item.href}
                   onClick={onClose}

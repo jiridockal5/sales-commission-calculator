@@ -26,8 +26,8 @@ const PAY_PERIOD_OPTIONS: { value: PayPeriodType; label: string }[] = [
 ];
 
 const QUOTA_TYPE_OPTIONS: { value: QuotaType; label: string }[] = [
-  { value: "individual", label: "Individual" },
-  { value: "team", label: "Team" },
+  { value: "individual", label: "Individual (member OTE × multiple)" },
+  { value: "team", label: "Team (total team OTE × multiple)" },
 ];
 
 export default function TeamPage() {
@@ -202,7 +202,7 @@ export default function TeamPage() {
 
           <Card
             title="Team Members"
-            description="Add members, set their base/OTE, and configure quota type and multiple."
+            description="Quotas are calculated from OTE: individual quotas use the member's OTE, while team quotas use the total team OTE converted to the reporting currency."
             actions={
               <Button onClick={handleAddMember} size="sm">
                 <Plus className="h-3.5 w-3.5" />
@@ -273,7 +273,7 @@ export default function TeamPage() {
                             options={QUOTA_TYPE_OPTIONS}
                           />
                         </Field>
-                        <Field label="Quota Multiple">
+                        <Field label="OTE Quota Multiple" hint="Multiplies monthly OTE, not variable compensation.">
                           <NumberInput
                             value={member.quotaMultiple}
                             onChange={(v) => updateMember(member.id, { quotaMultiple: v ?? 4 })}
@@ -287,12 +287,12 @@ export default function TeamPage() {
                           <span className="font-medium">{formatCurrency(derived.variable, member.currency)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500">Monthly Quota:</span>{" "}
-                          <span className="font-medium">{formatCurrency(derived.monthlyQuota, member.currency)}</span>
+                          <span className="text-slate-500">Monthly Quota (from OTE):</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.monthlyQuota, derived.quotaCurrency)}</span>
                         </div>
                         <div>
-                          <span className="text-slate-500">Annual Quota:</span>{" "}
-                          <span className="font-medium">{formatCurrency(derived.annualQuota, member.currency)}</span>
+                          <span className="text-slate-500">Annual Quota (from OTE):</span>{" "}
+                          <span className="font-medium">{formatCurrency(derived.annualQuota, derived.quotaCurrency)}</span>
                         </div>
                       </div>
                     </div>

@@ -44,6 +44,7 @@ export interface DerivedMemberValues {
   annualVariable: number;
   monthlyQuota: number;
   annualQuota: number;
+  quotaCurrency: CurrencyCode;
 }
 
 export interface TeamTotals {

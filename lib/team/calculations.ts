@@ -10,7 +10,11 @@ import type {
 
 const ZERO = new D(0);
 
-export function calculateMemberValues(member: TeamMember, teamOteMonthly: number): DerivedMemberValues {
+export function calculateMemberValues(
+  member: TeamMember,
+  teamOteMonthly: number,
+  teamQuotaCurrency: CurrencyCode = member.currency,
+): DerivedMemberValues {
   const base = dec(member.base);
   const ote = dec(member.ote);
   const variable = ote.minus(base);
@@ -33,8 +37,8 @@ export function calculateMemberValues(member: TeamMember, teamOteMonthly: number
     monthlyQuota = money(dec(teamOteMonthly).mul(member.quotaMultiple));
     annualQuota = money(dec(monthlyQuota).mul(12));
   } else {
-    monthlyQuota = money(dec(monthlyVariable).mul(member.quotaMultiple));
-    annualQuota = money(dec(annualVariable).mul(member.quotaMultiple));
+    monthlyQuota = money(dec(monthlyOte).mul(member.quotaMultiple));
+    annualQuota = money(dec(annualOte).mul(member.quotaMultiple));
   }
 
   return {
@@ -50,6 +54,7 @@ export function calculateMemberValues(member: TeamMember, teamOteMonthly: number
     annualVariable,
     monthlyQuota,
     annualQuota,
+    quotaCurrency: member.quotaType === "team" ? teamQuotaCurrency : member.currency,
   };
 }
 
@@ -77,10 +82,18 @@ export function calculateTeam(team: TeamDefinition, reportingCurrency: CurrencyC
   const teamOteMonthly = team.members.reduce((sum, member) => {
     const ote = dec(member.ote);
     const monthlyOte = member.payPeriod === "monthly" ? ote : ote.div(12);
-    return sum.plus(monthlyOte);
+    const convertedOte = convertCurrency(
+      money(monthlyOte),
+      member.currency,
+      reportingCurrency,
+      team.fxRates,
+    );
+    return sum.plus(convertedOte);
   }, ZERO);
 
-  const members = team.members.map((member) => calculateMemberValues(member, money(teamOteMonthly)));
+  const members = team.members.map((member) =>
+    calculateMemberValues(member, money(teamOteMonthly), reportingCurrency),
+  );
 
   let totalMonthlyBase = 0;
   let totalMonthlyOte = 0;
@@ -101,8 +114,8 @@ export function calculateTeam(team: TeamDefinition, reportingCurrency: CurrencyC
     totalAnnualBase += convertCurrency(derived.annualBase, member.currency, reportingCurrency, team.fxRates);
     totalAnnualOte += convertCurrency(derived.annualOte, member.currency, reportingCurrency, team.fxRates);
     totalAnnualVariable += convertCurrency(derived.annualVariable, member.currency, reportingCurrency, team.fxRates);
-    totalMonthlyQuota += convertCurrency(derived.monthlyQuota, member.currency, reportingCurrency, team.fxRates);
-    totalAnnualQuota += convertCurrency(derived.annualQuota, member.currency, reportingCurrency, team.fxRates);
+    totalMonthlyQuota += convertCurrency(derived.monthlyQuota, derived.quotaCurrency, reportingCurrency, team.fxRates);
+    totalAnnualQuota += convertCurrency(derived.annualQuota, derived.quotaCurrency, reportingCurrency, team.fxRates);
   }
 
   const teamMonthlyQuota = money(teamOteMonthly.mul(team.defaultQuotaMultiple));

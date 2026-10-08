@@ -27,8 +27,8 @@ describe("calculateMemberValues", () => {
     expect(result.annualBase).toBe(60000);
     expect(result.annualOte).toBe(120000);
     expect(result.annualVariable).toBe(60000);
-    expect(result.monthlyQuota).toBe(20000);
-    expect(result.annualQuota).toBe(240000);
+    expect(result.monthlyQuota).toBe(40000);
+    expect(result.annualQuota).toBe(480000);
   });
 
   it("should calculate derived values for annual pay period", () => {
@@ -55,8 +55,8 @@ describe("calculateMemberValues", () => {
     expect(result.annualBase).toBe(120000);
     expect(result.annualOte).toBe(240000);
     expect(result.annualVariable).toBe(120000);
-    expect(result.monthlyQuota).toBe(30000);
-    expect(result.annualQuota).toBe(360000);
+    expect(result.monthlyQuota).toBe(60000);
+    expect(result.annualQuota).toBe(720000);
   });
 
   it("should calculate team quota correctly", () => {
@@ -180,23 +180,28 @@ describe("calculateTeam", () => {
     expect(headOfSales.monthlyBase).toBe(170000);
     expect(headOfSales.monthlyOte).toBe(340000);
     expect(headOfSales.monthlyVariable).toBe(170000);
-    expect(headOfSales.monthlyQuota).toBe(2032000);
+    expect(headOfSales.monthlyQuota).toBe(2736000);
+    expect(headOfSales.annualQuota).toBe(32832000);
+    expect(headOfSales.quotaCurrency).toBe("CZK");
 
     const czAe = result.members[1];
     expect(czAe.monthlyBase).toBe(85000);
     expect(czAe.monthlyOte).toBe(160000);
     expect(czAe.monthlyVariable).toBe(75000);
-    expect(czAe.monthlyQuota).toBe(300000);
+    expect(czAe.monthlyQuota).toBe(640000);
+    expect(czAe.annualQuota).toBe(7680000);
 
     const usAe = result.members[2];
     expect(usAe.monthlyBase).toBe(6000);
     expect(usAe.monthlyOte).toBe(8000);
     expect(usAe.monthlyVariable).toBe(2000);
-    expect(usAe.monthlyQuota).toBe(8000);
+    expect(usAe.monthlyQuota).toBe(32000);
+    expect(usAe.annualQuota).toBe(384000);
 
     expect(result.totals.reportingCurrency).toBe("CZK");
     expect(result.totals.totalMonthlyOte).toBe(684000);
-    expect(result.totals.teamMonthlyQuota).toBe(2032000);
+    expect(result.totals.teamMonthlyQuota).toBe(2736000);
+    expect(result.totals.teamAnnualQuota).toBe(32832000);
   });
 
   it("should handle annual pay periods", () => {
@@ -229,6 +234,6 @@ describe("calculateTeam", () => {
     expect(member.monthlyOte).toBeCloseTo(16666.67, 2);
     expect(member.annualBase).toBe(100000);
     expect(member.annualOte).toBe(200000);
-    expect(member.annualQuota).toBe(400000);
+    expect(member.annualQuota).toBe(800000);
   });
 });

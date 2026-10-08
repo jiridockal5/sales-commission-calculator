@@ -330,6 +330,7 @@ export function calculateTeamScenario(
     return {
       memberId: member.id,
       currency: member.currency,
+      ownAttainmentPct: enteredAttainment,
       attainmentPct: memberAttainment,
       payoutBasis: member.payoutBasis,
       base: derived.monthlyBase,
@@ -377,8 +378,17 @@ export function calculateAttainmentScenarios(
   const start = Math.max(0, startPct);
   const end = Math.max(start, endPct);
   const step = Math.max(1, stepPct);
-  const count = Math.min(201, Math.floor((end - start) / step) + 1);
-  return Array.from({ length: count }, (_, index) =>
-    calculateTeamScenario(team, reportingCurrency, money(dec(start).plus(dec(step).mul(index)))),
-  );
+  const values: number[] = [];
+  let current = dec(start);
+  const endDec = dec(end);
+  const stepDec = dec(step);
+  while (current.lt(endDec) && values.length < 201) {
+    values.push(money(current));
+    current = current.plus(stepDec);
+  }
+  const endValue = money(endDec);
+  if (values.length === 0 || values[values.length - 1] !== endValue) {
+    if (values.length < 201) values.push(endValue);
+  }
+  return values.map((attainmentPct) => calculateTeamScenario(team, reportingCurrency, attainmentPct));
 }

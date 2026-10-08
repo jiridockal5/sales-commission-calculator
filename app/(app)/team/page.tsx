@@ -76,6 +76,9 @@ function ScenarioResultsTable({
               <td className="px-2 py-2 font-semibold">{scenario.scenarioName}</td>
               {scenario.members.map((memberScenario) => (
                 <td key={memberScenario.memberId} className="px-2 py-2">
+                  {memberScenario.payoutBasis === "team" && (
+                    <div>Team attainment: {memberScenario.attainmentPct.toLocaleString("en-US", { maximumFractionDigits: 2 })}%</div>
+                  )}
                   <div>Monthly base: {formatCurrency(memberScenario.base, memberScenario.currency)}</div>
                   <div>Variable payout: {formatCurrency(memberScenario.variablePayout, memberScenario.currency)}</div>
                   <div className="font-medium">Monthly total: {formatCurrency(memberScenario.total, memberScenario.currency)}</div>
@@ -543,9 +546,9 @@ export default function TeamPage() {
                       </div>
                       {(() => {
                         const rules = resolvePayoutRules(member, team);
-                        return rules.capPct !== null && rules.capPct < rules.thresholdPct ? (
+                        return rules.capPct !== null && rules.capPct <= rules.thresholdPct ? (
                           <Alert>
-                            Cap ({rules.capPct}%) is below threshold ({rules.thresholdPct}%). Variable payout stays at 0.
+                            Cap ({rules.capPct}%) is at or below threshold ({rules.thresholdPct}%). Variable payout stays at 0.
                           </Alert>
                         ) : null;
                       })()}
@@ -653,7 +656,7 @@ export default function TeamPage() {
 
       <Card
         title="Named Scenarios"
-        description="Set personal attainment for individual payouts and subtree attainment for team-based payouts."
+        description="Set each member's own-quota attainment. Team-basis payouts then use computed team attainment in the results."
       >
         <div className="mb-4 flex flex-col gap-2 sm:flex-row sm:items-end">
           <Field label="New Scenario" className="sm:max-w-xs">
@@ -689,7 +692,7 @@ export default function TeamPage() {
                       <th key={member.id} className="px-2 py-2">
                         <div>{member.name}</div>
                         <div className="font-normal">
-                          {member.payoutBasis === "team" ? "Subtree attainment" : "Personal attainment"}
+                          Own quota attainment
                         </div>
                       </th>
                     ))}

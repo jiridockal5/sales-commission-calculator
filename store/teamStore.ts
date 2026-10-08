@@ -210,14 +210,7 @@ export const useTeamStore = create<TeamState>((set, get) => ({
         if (reportsToMemberId !== undefined && createsReportingCycle(team, id, reportsToMemberId)) {
           return member;
         }
-        const next = { ...member, ...updates };
-        const enablingThreshold = member.thresholdPct === undefined && updates.thresholdPct === team.defaultThresholdPct;
-        const enablingAccelerator = member.accelerator === undefined && updates.accelerator === team.defaultAccelerator;
-        const enablingCap = member.capPct === undefined && updates.capPct === team.defaultCapPct;
-        if (!enablingThreshold && next.thresholdPct === team.defaultThresholdPct) next.thresholdPct = undefined;
-        if (!enablingAccelerator && next.accelerator === team.defaultAccelerator) next.accelerator = undefined;
-        if (!enablingCap && next.capPct === team.defaultCapPct) next.capPct = undefined;
-        return next;
+        return { ...member, ...updates };
       }),
     }));
   },

@@ -523,6 +523,13 @@ describe("hierarchy quota aggregation", () => {
     expect(rows[2]?.members.every((member) => member.attainmentPct === 20)).toBe(true);
   });
 
+  it("includes the range end when the step does not land on it", () => {
+    const rows = calculateAttainmentScenarios(hierarchyTeam, "USD", 0, 195, 10);
+    expect(rows.map((row) => row.attainmentPct)).toEqual([
+      0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 170, 180, 190, 195,
+    ]);
+  });
+
   it("breaks reporting cycles safely without dropping quota", () => {
     const cyclic: TeamDefinition = {
       ...hierarchyTeam,
@@ -612,11 +619,12 @@ describe("team import compatibility", () => {
     expect(calculateMemberValues(parsed.team.members[0]).monthlyQuota).toBe(40000);
     expect(parsed.team.members[1]).toMatchObject({
       targetVariable: 30000,
-      quotaMode: "direct",
-      directQuota: 270000,
+      quotaMode: "multiple",
+      quotaMultiple: 3,
       reportsToMemberId: "manager",
       payoutBasis: "individual",
     });
+    expect(parsed.team.members[1].directQuota).toBeUndefined();
     expect(parsed.team.scenarios.map((scenario) => scenario.name)).toEqual([
       "Downside",
       "Plan",
@@ -666,7 +674,9 @@ describe("team import compatibility", () => {
     expect(parsed.ok).toBe(true);
     if (!parsed.ok) return;
     expect(parsed.team.members[0].targetVariable).toBe(0);
-    expect(parsed.team.members[0].directQuota).toBe(16000);
+    expect(parsed.team.members[0].quotaMode).toBe("multiple");
+    expect(parsed.team.members[0].quotaMultiple).toBe(4);
+    expect(parsed.team.members[0].directQuota).toBeUndefined();
   });
 
   it("uses the first legacy team manager for unassigned reports when several exist", () => {
@@ -719,13 +729,14 @@ describe("team import compatibility", () => {
     ]);
   });
 
-  it("rejects wrapped exports from a newer schema but accepts raw legacy teams", () => {
+  it("rejects wrapped exports and raw teams from a newer schema", () => {
     const team = {
       id: "future",
       name: "Future team",
       members: [],
       schemaVersion: TEAM_SCHEMA_VERSION + 1,
     };
+    const error = `This team file uses schema version ${TEAM_SCHEMA_VERSION + 1}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`;
     const wrapped = deserializeTeam(JSON.stringify({
       format: TEAM_EXPORT_FORMAT,
       schemaVersion: TEAM_SCHEMA_VERSION + 1,
@@ -733,12 +744,7 @@ describe("team import compatibility", () => {
       team,
     }));
 
-    expect(wrapped).toEqual({
-      ok: false,
-      error: `This team file uses schema version ${TEAM_SCHEMA_VERSION + 1}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`,
-    });
-
-    const raw = deserializeTeam(JSON.stringify(team));
-    expect(raw.ok).toBe(true);
+    expect(wrapped).toEqual({ ok: false, error });
+    expect(deserializeTeam(JSON.stringify(team))).toEqual({ ok: false, error });
   });
 });

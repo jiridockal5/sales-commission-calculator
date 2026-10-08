@@ -107,6 +107,9 @@ export interface TeamCalculationResult {
 export interface MemberScenarioResult {
   memberId: string;
   currency: CurrencyCode;
+  /** Own-quota attainment entered for the scenario. */
+  ownAttainmentPct: number;
+  /** Attainment used for payout (subtree for team basis). */
   attainmentPct: number;
   payoutBasis: PayoutBasis;
   /** Monthly values in the member's currency. */

@@ -75,11 +75,7 @@ export function normalizeTeam(team: TeamDefinition): TeamDefinition {
     const isLegacyTeamManager = member.quotaType === "team";
     const quotaMode = member.quotaMode === "multiple" || member.quotaMode === "direct"
       ? member.quotaMode
-      : isLegacyTeamManager
-        ? "multiple"
-      : legacyOte !== null
-        ? "direct"
-        : "multiple";
+      : "multiple";
     const {
       ote: _legacyOte,
       quotaType: _legacyQuotaType,
@@ -179,14 +175,15 @@ export function deserializeTeam(json: string): { ok: true; team: TeamDefinition 
       return { ok: false, error: "Invalid JSON structure." };
     }
 
-    if (
-      data.format === TEAM_EXPORT_FORMAT
-      && typeof data.schemaVersion === "number"
-      && data.schemaVersion > TEAM_SCHEMA_VERSION
-    ) {
+    const schemaVersion = typeof data.schemaVersion === "number"
+      ? data.schemaVersion
+      : data.team && typeof data.team === "object" && typeof data.team.schemaVersion === "number"
+        ? data.team.schemaVersion
+        : null;
+    if (schemaVersion !== null && schemaVersion > TEAM_SCHEMA_VERSION) {
       return {
         ok: false,
-        error: `This team file uses schema version ${data.schemaVersion}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`,
+        error: `This team file uses schema version ${schemaVersion}, but this app supports up to version ${TEAM_SCHEMA_VERSION}.`,
       };
     }
     

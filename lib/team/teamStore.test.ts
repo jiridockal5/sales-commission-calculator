@@ -172,22 +172,23 @@ describe("team store hierarchy and scenarios", () => {
     expect(hydrated.members[1]).toMatchObject({
       id: "rep",
       targetVariable: 3000,
-      quotaMode: "direct",
-      directQuota: 27000,
+      quotaMode: "multiple",
+      quotaMultiple: 3,
       reportsToMemberId: "manager",
     });
+    expect(hydrated.members[1].directQuota).toBeUndefined();
     expect(JSON.parse(values.get("sales-team-definitions")!)[0].members)
       .toEqual(hydrated.members);
   });
 
-  it("stores an override equal to the team default as inherit", () => {
+  it("keeps an explicit override when an unrelated member field is updated", () => {
     const team = makeTeam();
     useTeamStore.setState({ hydrated: true, teams: [team], activeTeamId: team.id });
 
-    useTeamStore.getState().updateMember("rep", { thresholdPct: 25 });
-    expect(useTeamStore.getState().teams[0].members.find((member) => member.id === "rep")?.thresholdPct).toBe(25);
-
     useTeamStore.getState().updateMember("rep", { thresholdPct: 0 });
-    expect(useTeamStore.getState().teams[0].members.find((member) => member.id === "rep")?.thresholdPct).toBeUndefined();
+    useTeamStore.getState().updateMember("rep", { name: "Renamed rep" });
+    const updated = useTeamStore.getState().teams[0].members.find((member) => member.id === "rep");
+    expect(updated?.thresholdPct).toBe(0);
+    expect(updated?.name).toBe("Renamed rep");
   });
 });

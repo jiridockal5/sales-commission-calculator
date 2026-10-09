@@ -131,3 +131,23 @@ export interface TeamScenarioResult {
   arrCostRatio: number | null;
   reportingCurrency: CurrencyCode;
 }
+
+export type ArrPeriod = "monthly" | "annual";
+
+export interface ArrPayoutResult {
+  memberId: string;
+  period: ArrPeriod;
+  arrAmount: number;
+  arrCurrency: CurrencyCode;
+  quota: number;
+  quotaCurrency: CurrencyCode;
+  attainmentPct: number;
+  base: number;
+  variablePayout: number;
+  total: number;
+  payoutCurrency: CurrencyCode;
+  /** Variable payout in ARR currency divided by ARR. */
+  effectiveRate: number | null;
+  /** Variable payout from the next ARR unit in the current band. */
+  marginalRate: number | null;
+}

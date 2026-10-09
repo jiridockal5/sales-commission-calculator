@@ -11,6 +11,8 @@ import type {
   MemberScenarioResult,
   TeamScenarioResult,
   TeamScenario,
+  ArrPeriod,
+  ArrPayoutResult,
 } from "./types";
 import {
   DEFAULT_ACCELERATOR,
@@ -391,4 +393,151 @@ export function calculateAttainmentScenarios(
     if (values.length < 201) values.push(endValue);
   }
   return values.map((attainmentPct) => calculateTeamScenario(team, reportingCurrency, attainmentPct));
+}
+
+function quotaForArrPayout(
+  member: TeamMember,
+  derived: DerivedMemberValues,
+  period: ArrPeriod,
+): { amount: number; currency: CurrencyCode } {
+  if (member.payoutBasis === "team") {
+    return {
+      amount: period === "monthly" ? derived.aggregateMonthlyQuota : derived.aggregateAnnualQuota,
+      currency: derived.aggregateQuotaCurrency,
+    };
+  }
+  return {
+    amount: period === "monthly" ? derived.monthlyQuota : derived.annualQuota,
+    currency: member.currency,
+  };
+}
+
+function compensationForPeriod(derived: DerivedMemberValues, period: ArrPeriod): { base: number; targetVariable: number } {
+  return period === "monthly"
+    ? { base: derived.monthlyBase, targetVariable: derived.monthlyVariable }
+    : { base: derived.annualBase, targetVariable: derived.annualVariable };
+}
+
+const ARR_BREAKPOINT_PCTS = [0, 75, 100, 120, 150];
+
+export function calculateMarginalRate(
+  targetVariable: number,
+  quota: number,
+  attainmentPct: number,
+  rules: VariablePayoutRules,
+): number {
+  if (quota <= 0 || targetVariable <= 0) return 0;
+  const threshold = D.min(D.max(dec(rules.thresholdPct), 0), 100);
+  const cap = rules.capPct === null ? null : D.max(dec(rules.capPct), 0);
+  const attainment = dec(attainmentPct);
+  if (cap !== null && attainment.gte(cap)) return 0;
+  if (attainment.lt(threshold)) return 0;
+  if (attainment.lt(100)) {
+    const span = dec(100).minus(threshold);
+    if (span.lte(0)) return 0;
+    return dec(targetVariable).mul(100).div(dec(quota).mul(span)).toDecimalPlaces(4, D.ROUND_HALF_UP).toNumber();
+  }
+  return dec(targetVariable).mul(D.max(dec(rules.accelerator), 0)).div(quota).toDecimalPlaces(4, D.ROUND_HALF_UP).toNumber();
+}
+
+export function calculateArrPayout(
+  team: TeamDefinition,
+  reportingCurrency: CurrencyCode,
+  memberId: string,
+  arrAmount: number,
+  arrCurrency: CurrencyCode,
+  period: ArrPeriod,
+): ArrPayoutResult | null {
+  const calculation = calculateTeam(team, reportingCurrency);
+  const index = team.members.findIndex((member) => member.id === memberId);
+  if (index < 0) return null;
+  const member = team.members[index];
+  const derived = calculation.members[index];
+  const rules = resolvePayoutRules(member, team);
+  const quota = quotaForArrPayout(member, derived, period);
+  const { base, targetVariable } = compensationForPeriod(derived, period);
+  const arrInQuotaCurrency = convertCurrency(Math.max(arrAmount, 0), arrCurrency, quota.currency, team.fxRates);
+  const attainmentPct = quota.amount <= 0 ? 0 : money(dec(arrInQuotaCurrency).div(quota.amount).mul(100));
+  const variablePayout = calculateVariablePayout(targetVariable, attainmentPct, rules);
+  const payoutInArrCurrency = convertCurrency(variablePayout, member.currency, arrCurrency, team.fxRates);
+  const quotaInMemberCurrency = convertCurrency(quota.amount, quota.currency, member.currency, team.fxRates);
+
+  return {
+    memberId: member.id,
+    period,
+    arrAmount: money(Math.max(arrAmount, 0)),
+    arrCurrency,
+    quota: quota.amount,
+    quotaCurrency: quota.currency,
+    attainmentPct,
+    base,
+    variablePayout,
+    total: money(dec(base).plus(variablePayout)),
+    payoutCurrency: member.currency,
+    effectiveRate: arrAmount <= 0
+      ? null
+      : dec(payoutInArrCurrency).div(arrAmount).toDecimalPlaces(4, D.ROUND_HALF_UP).toNumber(),
+    marginalRate: quotaInMemberCurrency <= 0
+      ? null
+      : calculateMarginalRate(targetVariable, quotaInMemberCurrency, attainmentPct, rules),
+  };
+}
+
+export function calculateArrPayoutSchedule(
+  team: TeamDefinition,
+  reportingCurrency: CurrencyCode,
+  memberId: string,
+  period: ArrPeriod,
+  arrCurrency: CurrencyCode,
+  rangeStart: number,
+  rangeEnd: number,
+  step: number,
+): ArrPayoutResult[] {
+  const sample = calculateArrPayout(team, reportingCurrency, memberId, 0, arrCurrency, period);
+  if (!sample) return [];
+  const quotaInArr = convertCurrency(sample.quota, sample.quotaCurrency, arrCurrency, team.fxRates);
+  const member = team.members.find((item) => item.id === memberId);
+  const rules = member ? resolvePayoutRules(member, team) : { thresholdPct: 0, accelerator: 1, capPct: null };
+  const start = Math.max(0, rangeStart);
+  const end = Math.max(start, rangeEnd);
+  const stepSize = Math.max(0, step);
+  const amounts: number[] = [];
+  if (stepSize > 0) {
+    let current = dec(start);
+    const endDec = dec(end);
+    const stepDec = dec(stepSize);
+    while (current.lt(endDec) && amounts.length < 201) {
+      amounts.push(money(current));
+      current = current.plus(stepDec);
+    }
+  }
+  const endValue = money(end);
+  if (amounts.length === 0 || amounts[amounts.length - 1] !== endValue) {
+    if (amounts.length < 201) amounts.push(endValue);
+  }
+  const breakpointPcts = [...ARR_BREAKPOINT_PCTS, rules.thresholdPct, rules.capPct]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0);
+  for (const pctValue of breakpointPcts) {
+    const amount = money(dec(quotaInArr).mul(pctValue).div(100));
+    if (amount >= start && amount <= end) amounts.push(amount);
+  }
+  const unique = [...new Set(amounts)].sort((a, b) => a - b).slice(0, 201);
+  return unique.flatMap((amount) => {
+    const row = calculateArrPayout(team, reportingCurrency, memberId, amount, arrCurrency, period);
+    return row ? [row] : [];
+  });
+}
+
+export function calculateArrPayoutComparison(
+  team: TeamDefinition,
+  reportingCurrency: CurrencyCode,
+  arrAmount: number,
+  period: ArrPeriod,
+): ArrPayoutResult[] {
+  return team.members
+    .filter((member) => member.payoutBasis === "individual")
+    .flatMap((member) => {
+      const row = calculateArrPayout(team, reportingCurrency, member.id, arrAmount, reportingCurrency, period);
+      return row ? [row] : [];
+    });
 }

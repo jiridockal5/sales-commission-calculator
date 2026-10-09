@@ -2,14 +2,25 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Download, Plus, Trash2, Upload, Eye, DollarSign } from "lucide-react";
-import { Button, Field, Select, TextInput, NumberInput } from "@/components/ui/controls";
+import { Button, Field, Select, TextInput, NumberInput, Segmented } from "@/components/ui/controls";
 import { Alert, Card, PageHeader } from "@/components/ui/layout";
 import { useTeamStore, useActiveTeam } from "@/store/teamStore";
-import { calculateAttainmentScenarios, calculateTeam, calculateTeamScenario, resolvePayoutRules } from "@/lib/team/calculations";
+import {
+  calculateArrPayout,
+  calculateArrPayoutComparison,
+  calculateArrPayoutSchedule,
+  calculateAttainmentScenarios,
+  calculateTeam,
+  calculateTeamScenario,
+  convertCurrency,
+  resolvePayoutRules,
+} from "@/lib/team/calculations";
 import { serializeTeam, deserializeTeam } from "@/lib/team/export";
-import { formatCurrency } from "@/lib/format/currency";
+import { formatCurrency, formatPct } from "@/lib/format/currency";
 import type {
+  ArrPeriod,
   CurrencyCode,
+  TeamDefinition,
   TeamMemberRole,
   PayPeriodType,
   PayoutBasis,
@@ -93,6 +104,222 @@ function ScenarioResultsTable({
       </table>
     </div>
   );
+}
+
+function formatArrRate(rate: number | null): string {
+  return rate === null ? "—" : formatPct(rate * 100, 2);
+}
+
+function ArrPayoutPanel({
+  team,
+  reportingCurrency,
+}: {
+  team: TeamDefinition;
+  reportingCurrency: CurrencyCode;
+}) {
+  const [memberId, setMemberId] = useState(team.members[0]?.id ?? "");
+  const [period, setPeriod] = useState<ArrPeriod>("annual");
+  const [memberArr, setMemberArr] = useState(0);
+  const [reportingArr, setReportingArr] = useState(0);
+  const [rangeStart, setRangeStart] = useState(0);
+  const [rangeEnd, setRangeEnd] = useState(0);
+  const [rangeStep, setRangeStep] = useState(0);
+  const [compareArr, setCompareArr] = useState(0);
+
+  const member = team.members.find((item) => item.id === memberId) ?? team.members[0] ?? null;
+
+  useEffect(() => {
+    if (member && !team.members.some((item) => item.id === memberId)) {
+      setMemberId(member.id);
+    }
+  }, [member, memberId, team.members]);
+
+  useEffect(() => {
+    if (!member) return;
+    const sample = calculateArrPayout(team, reportingCurrency, member.id, 0, member.currency, period);
+    if (!sample) return;
+    const quotaInMember = convertCurrency(sample.quota, sample.quotaCurrency, member.currency, team.fxRates);
+    const quotaInReporting = convertCurrency(sample.quota, sample.quotaCurrency, reportingCurrency, team.fxRates);
+    setMemberArr(quotaInMember);
+    setReportingArr(quotaInReporting);
+    setRangeStart(0);
+    setRangeEnd(moneyOrZero(quotaInMember * 2));
+    setRangeStep(moneyOrZero(quotaInMember * 0.1));
+    setCompareArr(quotaInReporting);
+  }, [member?.id, period, reportingCurrency]);
+
+  if (!member) {
+    return <Alert>Add team members to look up payout by ARR.</Alert>;
+  }
+
+  const lookup = calculateArrPayout(team, reportingCurrency, member.id, memberArr, member.currency, period);
+  const schedule = calculateArrPayoutSchedule(
+    team,
+    reportingCurrency,
+    member.id,
+    period,
+    member.currency,
+    rangeStart,
+    rangeEnd,
+    rangeStep,
+  );
+  const comparison = calculateArrPayoutComparison(team, reportingCurrency, compareArr, period);
+  const arrLabel = member.payoutBasis === "team" ? "Team ARR" : "Own ARR";
+
+  return (
+    <div className="space-y-5">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <Field label="Member">
+          <Select
+            value={member.id}
+            onChange={setMemberId}
+            options={team.members.map((item) => ({ value: item.id, label: item.name }))}
+          />
+        </Field>
+        <Field label="Period">
+          <Segmented<ArrPeriod>
+            value={period}
+            onChange={setPeriod}
+            options={[
+              { value: "monthly", label: "Month" },
+              { value: "annual", label: "Year" },
+            ]}
+          />
+        </Field>
+        <Field label={`${arrLabel} (${member.currency})`}>
+          <NumberInput
+            value={memberArr}
+            onChange={(value) => {
+              const next = value ?? 0;
+              setMemberArr(next);
+              setReportingArr(convertCurrency(next, member.currency, reportingCurrency, team.fxRates));
+            }}
+            min={0}
+          />
+        </Field>
+        <Field label={`${arrLabel} (${reportingCurrency})`}>
+          <NumberInput
+            value={reportingArr}
+            onChange={(value) => {
+              const next = value ?? 0;
+              setReportingArr(next);
+              setMemberArr(convertCurrency(next, reportingCurrency, member.currency, team.fxRates));
+            }}
+            min={0}
+          />
+        </Field>
+      </div>
+
+      {lookup && (
+        <div className="grid gap-2 border-t border-slate-100 pt-3 text-sm sm:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <span className="text-slate-500">Attainment:</span>{" "}
+            <span className="font-medium">{formatPct(lookup.attainmentPct, 2)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Base:</span>{" "}
+            <span className="font-medium">{formatCurrency(lookup.base, lookup.payoutCurrency)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Variable payout:</span>{" "}
+            <span className="font-medium">{formatCurrency(lookup.variablePayout, lookup.payoutCurrency)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Total:</span>{" "}
+            <span className="font-semibold">{formatCurrency(lookup.total, lookup.payoutCurrency)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Effective rate:</span>{" "}
+            <span className="font-medium">{formatArrRate(lookup.effectiveRate)}</span>
+          </div>
+          <div>
+            <span className="text-slate-500">Marginal rate:</span>{" "}
+            <span className="font-medium">{formatArrRate(lookup.marginalRate)}</span>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label={`Table from (${member.currency})`}>
+          <NumberInput value={rangeStart} onChange={(value) => setRangeStart(value ?? 0)} min={0} />
+        </Field>
+        <Field label={`Table to (${member.currency})`}>
+          <NumberInput value={rangeEnd} onChange={(value) => setRangeEnd(value ?? 0)} min={0} />
+        </Field>
+        <Field label={`Table step (${member.currency})`}>
+          <NumberInput value={rangeStep} onChange={(value) => setRangeStep(Math.max(0, value ?? 0))} min={0} />
+        </Field>
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-max text-left text-xs">
+          <thead className="border-b border-slate-200 text-slate-500">
+            <tr>
+              <th className="px-2 py-2">{arrLabel} ({member.currency})</th>
+              <th className="px-2 py-2">Attainment</th>
+              <th className="px-2 py-2">Variable</th>
+              <th className="px-2 py-2">Total</th>
+              <th className="px-2 py-2">Effective rate</th>
+              <th className="px-2 py-2">Marginal rate</th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedule.map((row) => (
+              <tr key={`${row.arrAmount}-${row.attainmentPct}`} className="border-b border-slate-100">
+                <td className="px-2 py-2 font-medium">{formatCurrency(row.arrAmount, member.currency)}</td>
+                <td className="px-2 py-2">{formatPct(row.attainmentPct, 2)}</td>
+                <td className="px-2 py-2">{formatCurrency(row.variablePayout, row.payoutCurrency)}</td>
+                <td className="px-2 py-2">{formatCurrency(row.total, row.payoutCurrency)}</td>
+                <td className="px-2 py-2">{formatArrRate(row.effectiveRate)}</td>
+                <td className="px-2 py-2">{formatArrRate(row.marginalRate)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="space-y-3 border-t border-slate-100 pt-3">
+        <h4 className="text-sm font-semibold text-slate-900">Compare individual quotas</h4>
+        <Field label={`Same ARR for every individual member (${reportingCurrency})`} className="sm:max-w-xs">
+          <NumberInput value={compareArr} onChange={(value) => setCompareArr(value ?? 0)} min={0} />
+        </Field>
+        {comparison.length === 0 ? (
+          <Alert>No members with an individual quota to compare.</Alert>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-max text-left text-xs">
+              <thead className="border-b border-slate-200 text-slate-500">
+                <tr>
+                  <th className="px-2 py-2">ARR ({reportingCurrency})</th>
+                  {comparison.map((row) => {
+                    const name = team.members.find((item) => item.id === row.memberId)?.name ?? row.memberId;
+                    return <th key={row.memberId} className="px-2 py-2">{name}</th>;
+                  })}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="border-b border-slate-100 align-top">
+                  <td className="px-2 py-2 font-medium">{formatCurrency(compareArr, reportingCurrency)}</td>
+                  {comparison.map((row) => (
+                    <td key={row.memberId} className="px-2 py-2">
+                      <div>Attainment: {formatPct(row.attainmentPct, 2)}</div>
+                      <div>Variable: {formatCurrency(row.variablePayout, row.payoutCurrency)}</div>
+                      <div>Effective: {formatArrRate(row.effectiveRate)}</div>
+                      <div>Marginal: {formatArrRate(row.marginalRate)}</div>
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function moneyOrZero(value: number): number {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value * 100) / 100) : 0;
 }
 
 function canReportTo(
@@ -773,6 +1000,13 @@ export default function TeamPage() {
             reportingCurrency={reportingCurrency}
           />
         )}
+      </Card>
+
+      <Card
+        title="Payout by ARR"
+        description="Look up variable pay, effective rate, and marginal rate from an ARR amount. Team-basis members use subtree ARR."
+      >
+        <ArrPayoutPanel team={team} reportingCurrency={reportingCurrency} />
       </Card>
     </div>
   );

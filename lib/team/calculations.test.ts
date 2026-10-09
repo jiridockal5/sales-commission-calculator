@@ -6,6 +6,9 @@ import {
   calculateTeamScenario,
   calculateVariablePayout,
   calculateAttainmentScenarios,
+  calculateArrPayout,
+  calculateArrPayoutComparison,
+  calculateArrPayoutSchedule,
 } from "./calculations";
 import {
   deserializeTeam,
@@ -746,5 +749,116 @@ describe("team import compatibility", () => {
 
     expect(wrapped).toEqual({ ok: false, error });
     expect(deserializeTeam(JSON.stringify(team))).toEqual({ ok: false, error });
+  });
+});
+
+describe("payout by ARR", () => {
+  const team: TeamDefinition = {
+    id: "arr-team",
+    name: "ARR team",
+    defaultQuotaMultiple: 4,
+    defaultThresholdPct: 50,
+    defaultAccelerator: 3,
+    defaultCapPct: 150,
+    fxRates: { "USD/CZK": 20 },
+    members: [
+      {
+        id: "cz",
+        name: "CZ AE",
+        role: "AE",
+        currency: "CZK",
+        payPeriod: "monthly",
+        base: 10000,
+        targetVariable: 10000,
+        quotaMode: "multiple",
+        quotaMultiple: 4,
+        reportsToMemberId: "mgr",
+        payoutBasis: "individual",
+      },
+      {
+        id: "us",
+        name: "US AE",
+        role: "AE",
+        currency: "USD",
+        payPeriod: "monthly",
+        base: 500,
+        targetVariable: 500,
+        quotaMode: "multiple",
+        quotaMultiple: 4,
+        reportsToMemberId: "mgr",
+        payoutBasis: "individual",
+      },
+      {
+        id: "mgr",
+        name: "Manager",
+        role: "Manager",
+        currency: "CZK",
+        payPeriod: "monthly",
+        base: 20000,
+        targetVariable: 20000,
+        quotaMode: "multiple",
+        quotaMultiple: 1,
+        reportsToMemberId: null,
+        payoutBasis: "team",
+      },
+    ],
+    scenarios: [],
+    createdAt: "2026-01-01",
+    updatedAt: "2026-01-01",
+  };
+
+  it("pays no variable below or at threshold", () => {
+    const below = calculateArrPayout(team, "CZK", "cz", 30000, "CZK", "monthly");
+    const atThreshold = calculateArrPayout(team, "CZK", "cz", 40000, "CZK", "monthly");
+    expect(below?.variablePayout).toBe(0);
+    expect(below?.marginalRate).toBe(0);
+    expect(atThreshold?.attainmentPct).toBe(50);
+    expect(atThreshold?.variablePayout).toBe(0);
+    expect(atThreshold?.marginalRate).toBe(0.25);
+  });
+
+  it("pays full variable at 100% and accelerates above it until the cap", () => {
+    const atQuota = calculateArrPayout(team, "CZK", "cz", 80000, "CZK", "monthly");
+    const accelerated = calculateArrPayout(team, "CZK", "cz", 100000, "CZK", "monthly");
+    const atCap = calculateArrPayout(team, "CZK", "cz", 120000, "CZK", "monthly");
+    const aboveCap = calculateArrPayout(team, "CZK", "cz", 160000, "CZK", "monthly");
+
+    expect(atQuota?.variablePayout).toBe(10000);
+    expect(atQuota?.total).toBe(20000);
+    expect(atQuota?.effectiveRate).toBe(0.125);
+    expect(atQuota?.marginalRate).toBe(0.375);
+    expect(accelerated?.variablePayout).toBe(17500);
+    expect(atCap?.variablePayout).toBe(25000);
+    expect(aboveCap?.variablePayout).toBe(25000);
+    expect(aboveCap?.marginalRate).toBe(0);
+  });
+
+  it("converts ARR from reporting currency into member attainment", () => {
+    const usd = calculateArrPayout(team, "CZK", "cz", 4000, "USD", "monthly");
+    expect(usd?.attainmentPct).toBe(100);
+    expect(usd?.variablePayout).toBe(10000);
+  });
+
+  it("uses subtree ARR for a team-basis manager", () => {
+    const atTeamQuota = calculateArrPayout(team, "CZK", "mgr", 200000, "CZK", "monthly");
+    const below = calculateArrPayout(team, "CZK", "mgr", 90000, "CZK", "monthly");
+    expect(atTeamQuota?.quota).toBe(200000);
+    expect(atTeamQuota?.attainmentPct).toBe(100);
+    expect(atTeamQuota?.variablePayout).toBe(20000);
+    expect(below?.variablePayout).toBe(0);
+  });
+
+  it("compares the same reporting ARR across individual quotas only", () => {
+    const rows = calculateArrPayoutComparison(team, "CZK", 80000, "monthly");
+    expect(rows.map((row) => row.memberId)).toEqual(["cz", "us"]);
+    expect(rows[0]?.attainmentPct).toBe(100);
+    expect(rows[1]?.attainmentPct).toBe(100);
+    expect(rows[0]?.variablePayout).toBe(10000);
+    expect(rows[1]?.variablePayout).toBe(500);
+  });
+
+  it("builds an ARR table from breakpoints and the range end", () => {
+    const rows = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 90000, 80000);
+    expect(rows.map((row) => row.arrAmount)).toEqual([0, 40000, 60000, 80000, 90000]);
   });
 });

@@ -8,8 +8,6 @@ import {
   calculateAttainmentScenarios,
   calculateArrPayout,
   calculateArrPayoutComparison,
-  calculateArrPayoutSchedule,
-  ARR_SCHEDULE_MAX_ROWS,
 } from "./calculations";
 import {
   deserializeTeam,
@@ -858,12 +856,6 @@ describe("payout by ARR", () => {
     expect(rows[1]?.variablePayout).toBe(500);
   });
 
-  it("builds an ARR table from breakpoints and the range end", () => {
-    const { rows, truncated } = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 90000, 80000);
-    expect(truncated).toBe(false);
-    expect(rows.map((row) => row.arrAmount)).toEqual([0, 40000, 60000, 80000, 90000]);
-  });
-
   it("does not round ARR just below quota or threshold up into the next band", () => {
     const tight: TeamDefinition = {
       ...team,
@@ -890,12 +882,5 @@ describe("payout by ARR", () => {
     const justBelowThreshold = calculateArrPayout(team, "CZK", "cz", 39999, "CZK", "monthly");
     expect(justBelowThreshold?.attainmentPct).toBeLessThan(50);
     expect(justBelowThreshold?.variablePayout).toBe(0);
-  });
-
-  it("keeps ARR breakpoints when the step would exceed the row limit", () => {
-    const { rows, truncated } = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 200000, 1);
-    expect(truncated).toBe(true);
-    expect(rows.length).toBeLessThanOrEqual(ARR_SCHEDULE_MAX_ROWS);
-    expect(rows.map((row) => row.arrAmount)).toEqual(expect.arrayContaining([0, 40000, 60000, 80000, 96000, 120000, 200000]));
   });
 });

@@ -9,6 +9,7 @@ import {
   calculateArrPayout,
   calculateArrPayoutComparison,
   calculateArrPayoutSchedule,
+  ARR_SCHEDULE_MAX_ROWS,
 } from "./calculations";
 import {
   deserializeTeam,
@@ -515,7 +516,7 @@ describe("hierarchy quota aggregation", () => {
 
     expect(cz?.variablePayout).toBe(25);
     expect(us?.variablePayout).toBe(15);
-    expect(head?.attainmentPct).toBe(121.43);
+    expect(head?.attainmentPct).toBeCloseTo(121.4286, 3);
     expect(head?.variablePayout).toBe(121.43);
     expect(scenario.generatedArr).toBe(10200);
   });
@@ -858,7 +859,43 @@ describe("payout by ARR", () => {
   });
 
   it("builds an ARR table from breakpoints and the range end", () => {
-    const rows = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 90000, 80000);
+    const { rows, truncated } = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 90000, 80000);
+    expect(truncated).toBe(false);
     expect(rows.map((row) => row.arrAmount)).toEqual([0, 40000, 60000, 80000, 90000]);
+  });
+
+  it("does not round ARR just below quota or threshold up into the next band", () => {
+    const tight: TeamDefinition = {
+      ...team,
+      defaultThresholdPct: 100,
+      defaultAccelerator: 2,
+      defaultCapPct: null,
+      members: [{
+        ...team.members[0],
+        reportsToMemberId: null,
+        base: 85000,
+        targetVariable: 75000,
+        quotaMultiple: 4,
+      }],
+    };
+
+    const justBelowQuota = calculateArrPayout(tight, "CZK", "cz", 639999, "CZK", "monthly");
+    expect(justBelowQuota?.quota).toBe(640000);
+    expect(justBelowQuota?.attainmentPct).toBeLessThan(100);
+    expect(justBelowQuota?.variablePayout).toBe(0);
+
+    const atQuota = calculateArrPayout(tight, "CZK", "cz", 640000, "CZK", "monthly");
+    expect(atQuota?.variablePayout).toBe(75000);
+
+    const justBelowThreshold = calculateArrPayout(team, "CZK", "cz", 39999, "CZK", "monthly");
+    expect(justBelowThreshold?.attainmentPct).toBeLessThan(50);
+    expect(justBelowThreshold?.variablePayout).toBe(0);
+  });
+
+  it("keeps ARR breakpoints when the step would exceed the row limit", () => {
+    const { rows, truncated } = calculateArrPayoutSchedule(team, "CZK", "cz", "monthly", "CZK", 0, 200000, 1);
+    expect(truncated).toBe(true);
+    expect(rows.length).toBeLessThanOrEqual(ARR_SCHEDULE_MAX_ROWS);
+    expect(rows.map((row) => row.arrAmount)).toEqual(expect.arrayContaining([0, 40000, 60000, 80000, 96000, 120000, 200000]));
   });
 });

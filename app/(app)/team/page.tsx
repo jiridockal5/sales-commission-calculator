@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Download, Plus, Trash2, Upload, Eye, DollarSign } from "lucide-react";
 import { Button, Field, Select, TextInput, NumberInput, Segmented } from "@/components/ui/controls";
 import { Alert, Card, PageHeader } from "@/components/ui/layout";
@@ -8,6 +8,7 @@ import { useTeamStore, useActiveTeam } from "@/store/teamStore";
 import {
   calculateArrPayout,
   calculateArrPayoutComparison,
+  ARR_SCHEDULE_MAX_ROWS,
   calculateArrPayoutSchedule,
   calculateAttainmentScenarios,
   calculateTeam,
@@ -125,6 +126,8 @@ function ArrPayoutPanel({
   const [rangeEnd, setRangeEnd] = useState(0);
   const [rangeStep, setRangeStep] = useState(0);
   const [compareArr, setCompareArr] = useState(0);
+  const arrInputsDirty = useRef(false);
+  const arrContextRef = useRef({ memberId: "", period, reportingCurrency });
 
   const member = team.members.find((item) => item.id === memberId) ?? team.members[0] ?? null;
 
@@ -134,23 +137,45 @@ function ArrPayoutPanel({
     }
   }, [member, memberId, team.members]);
 
-  useEffect(() => {
-    if (!member) return;
+  const quotaDefaults = useMemo(() => {
+    if (!member) return null;
     const sample = calculateArrPayout(team, reportingCurrency, member.id, 0, member.currency, period);
-    if (!sample) return;
+    if (!sample) return null;
     const quotaInMember = convertCurrency(sample.quota, sample.quotaCurrency, member.currency, team.fxRates);
     const quotaInReporting = convertCurrency(sample.quota, sample.quotaCurrency, reportingCurrency, team.fxRates);
-    setMemberArr(quotaInMember);
-    setReportingArr(quotaInReporting);
-    setRangeStart(0);
-    setRangeEnd(moneyOrZero(quotaInMember * 2));
-    setRangeStep(moneyOrZero(quotaInMember * 0.1));
-    setCompareArr(quotaInReporting);
-  }, [member?.id, period, reportingCurrency]);
+    return {
+      memberArr: quotaInMember,
+      reportingArr: quotaInReporting,
+      rangeStart: 0,
+      rangeEnd: moneyOrZero(quotaInMember * 2),
+      rangeStep: moneyOrZero(quotaInMember * 0.1),
+      compareArr: quotaInReporting,
+    };
+  }, [member, period, reportingCurrency, team]);
+
+  useEffect(() => {
+    if (!member || !quotaDefaults) return;
+    const contextChanged = arrContextRef.current.memberId !== member.id
+      || arrContextRef.current.period !== period
+      || arrContextRef.current.reportingCurrency !== reportingCurrency;
+    arrContextRef.current = { memberId: member.id, period, reportingCurrency };
+    if (contextChanged) arrInputsDirty.current = false;
+    if (arrInputsDirty.current) return;
+    setMemberArr(quotaDefaults.memberArr);
+    setReportingArr(quotaDefaults.reportingArr);
+    setRangeStart(quotaDefaults.rangeStart);
+    setRangeEnd(quotaDefaults.rangeEnd);
+    setRangeStep(quotaDefaults.rangeStep);
+    setCompareArr(quotaDefaults.compareArr);
+  }, [member, period, reportingCurrency, quotaDefaults]);
 
   if (!member) {
     return <Alert>Add team members to look up payout by ARR.</Alert>;
   }
+
+  const markArrInputsDirty = () => {
+    arrInputsDirty.current = true;
+  };
 
   const lookup = calculateArrPayout(team, reportingCurrency, member.id, memberArr, member.currency, period);
   const schedule = calculateArrPayoutSchedule(
@@ -191,6 +216,7 @@ function ArrPayoutPanel({
             value={memberArr}
             onChange={(value) => {
               const next = value ?? 0;
+              markArrInputsDirty();
               setMemberArr(next);
               setReportingArr(convertCurrency(next, member.currency, reportingCurrency, team.fxRates));
             }}
@@ -202,6 +228,7 @@ function ArrPayoutPanel({
             value={reportingArr}
             onChange={(value) => {
               const next = value ?? 0;
+              markArrInputsDirty();
               setReportingArr(next);
               setMemberArr(convertCurrency(next, reportingCurrency, member.currency, team.fxRates));
             }}
@@ -241,15 +268,42 @@ function ArrPayoutPanel({
 
       <div className="grid gap-3 sm:grid-cols-3">
         <Field label={`Table from (${member.currency})`}>
-          <NumberInput value={rangeStart} onChange={(value) => setRangeStart(value ?? 0)} min={0} />
+          <NumberInput
+            value={rangeStart}
+            onChange={(value) => {
+              markArrInputsDirty();
+              setRangeStart(value ?? 0);
+            }}
+            min={0}
+          />
         </Field>
         <Field label={`Table to (${member.currency})`}>
-          <NumberInput value={rangeEnd} onChange={(value) => setRangeEnd(value ?? 0)} min={0} />
+          <NumberInput
+            value={rangeEnd}
+            onChange={(value) => {
+              markArrInputsDirty();
+              setRangeEnd(value ?? 0);
+            }}
+            min={0}
+          />
         </Field>
         <Field label={`Table step (${member.currency})`}>
-          <NumberInput value={rangeStep} onChange={(value) => setRangeStep(Math.max(0, value ?? 0))} min={0} />
+          <NumberInput
+            value={rangeStep}
+            onChange={(value) => {
+              markArrInputsDirty();
+              setRangeStep(Math.max(0, value ?? 0));
+            }}
+            min={0}
+          />
         </Field>
       </div>
+
+      {schedule.truncated && (
+        <Alert>
+          The table is limited to {ARR_SCHEDULE_MAX_ROWS} rows because the step is small. Breakpoints such as quota, 120%, 150%, and the range end are still included.
+        </Alert>
+      )}
 
       <div className="overflow-x-auto">
         <table className="w-full min-w-max text-left text-xs">
@@ -264,7 +318,7 @@ function ArrPayoutPanel({
             </tr>
           </thead>
           <tbody>
-            {schedule.map((row) => (
+            {schedule.rows.map((row) => (
               <tr key={`${row.arrAmount}-${row.attainmentPct}`} className="border-b border-slate-100">
                 <td className="px-2 py-2 font-medium">{formatCurrency(row.arrAmount, member.currency)}</td>
                 <td className="px-2 py-2">{formatPct(row.attainmentPct, 2)}</td>
@@ -281,7 +335,14 @@ function ArrPayoutPanel({
       <div className="space-y-3 border-t border-slate-100 pt-3">
         <h4 className="text-sm font-semibold text-slate-900">Compare individual quotas</h4>
         <Field label={`Same ARR for every individual member (${reportingCurrency})`} className="sm:max-w-xs">
-          <NumberInput value={compareArr} onChange={(value) => setCompareArr(value ?? 0)} min={0} />
+          <NumberInput
+            value={compareArr}
+            onChange={(value) => {
+              markArrInputsDirty();
+              setCompareArr(value ?? 0);
+            }}
+            min={0}
+          />
         </Field>
         {comparison.length === 0 ? (
           <Alert>No members with an individual quota to compare.</Alert>
